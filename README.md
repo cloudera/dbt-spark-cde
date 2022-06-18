@@ -7,9 +7,7 @@ The `dbt-spark-livy` adapter allows you to use [dbt](https://www.getdbt.com/) al
 - [Install dbt](https://docs.getdbt.com/docs/installation)
 - Read the [introduction](https://docs.getdbt.com/docs/introduction/) and [viewpoint](https://docs.getdbt.com/docs/about/viewpoint/)
 
-## Running locally
-A `docker-compose` environment starts a Spark Thrift server and a Postgres database as a Hive Metastore backend.
-Note: dbt-spark now supports Spark 3.1.1 (formerly on Spark 2.x).
+### Requirements
 
 Python >= 3.8
 
