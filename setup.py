@@ -28,7 +28,7 @@ with open(os.path.join(this_directory, "README.md"), "r", encoding="utf8") as f:
 
 # get this package's version from dbt/adapters/<name>/__version__.py
 def _get_plugin_version_dict():
-    _version_path = os.path.join(this_directory, "dbt", "adapters", "spark_livy", "__version__.py")
+    _version_path = os.path.join(this_directory, "dbt", "adapters", "spark_cde", "__version__.py")
     _semver = r"""(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"""
     _pre = r"""((?P<prekind>a|b|rc)(?P<pre>\d+))?"""
     _version_pattern = fr"""version\s*=\s*["']{_semver}{_pre}["']"""
@@ -47,10 +47,10 @@ def _get_dbt_core_version():
     return f"{minor}{pre}"
 
 
-package_name = "dbt-spark-livy"
-package_version = "1.2.0"
+package_name = "dbt-spark-cde"
+package_version = "1.1.0"
 dbt_core_version = _get_dbt_core_version()
-description = """The dbt-spark-livy adapter plugin for Spark in Cloudera DataHub with Livy interface"""
+description = """The CDE API based Cloudera Spark adapter plugin for dbt"""
 
 odbc_extras = ["pyodbc>=4.0.30"]
 pyhive_extras = [
