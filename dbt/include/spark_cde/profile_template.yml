@@ -1,5 +1,5 @@
 fixed:
-  type: spark
+  type: spark_cde
 prompts:
   host:
     hint: yourorg.sparkhost.com
