@@ -1,4 +1,4 @@
-{% macro spark__dateadd(datepart, interval, from_date_or_timestamp) %}
+{% macro spark_cde__dateadd(datepart, interval, from_date_or_timestamp) %}
 
     {%- set clock_component -%}
         {# make sure the dates + timestamps are real, otherwise raise an error asap #}
