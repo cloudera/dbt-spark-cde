@@ -15,6 +15,7 @@ from dbt.events import AdapterLogger
 from dbt.events.functions import fire_event
 from dbt.utils import DECIMALS
 from dbt.adapters.spark_cde import __version__
+from dbt.adapters.spark_cde.cdeapisession import CDEApiSessionConnectionWrapper, CDEApiConnectionManager
 from dbt.tracking import DBT_INVOCATION_ENV
 
 try:
@@ -62,12 +63,14 @@ class SparkConnectionMethod(StrEnum):
     HTTP = "http"
     ODBC = "odbc"
     SESSION = "session"
+    CDE = "cde"
 
 
 @dataclass
 class SparkCredentials(Credentials):
     host: str
     method: SparkConnectionMethod
+    auth_endpoint: str
     database: Optional[str]
     driver: Optional[str] = None
     cluster: Optional[str] = None
@@ -470,49 +473,8 @@ class SparkConnectionManager(SQLConnectionManager):
                     )
 
                     handle = SessionConnectionWrapper(Connection())
-                elif creds.method == SparkConnectionMethod.LIVY:
-                    # connect to livy interactive session
-                    connection_start_time = time.time()
-                    connection_ex = None
-                    try:
-                        handle = LivySessionConnectionWrapper(
-                            LivyConnectionManager()
-                            .connect(
-                                creds.host,
-                                creds.user,
-                                creds.password,
-                                creds.auth,
-                                creds.livy_session_parameters,
-                                creds.verify_ssl_certificate
-                            )
-                        )
-                        connection_end_time = time.time()
-                        connection.state = ConnectionState.OPEN
-                    except Exception as ex:
-                        logger.debug("Connection error: {}".format(ex))
-                        connection_ex = ex
-                        connection_end_time = time.time()
-                        connection.state = ConnectionState.FAIL
-
-                    # track usage
-                    payload = {
-                        "event_type": "dbt_spark_livy_open",
-                        "auth": "livy",
-                        "connection_state": connection.state,
-                        "elapsed_time": "{:.2f}".format(
-                            connection_end_time - connection_start_time
-                        ),
-                    }
-
-                    if connection.state == ConnectionState.FAIL:
-                        payload["connection_exception"] = "{}".format(connection_ex)
-                        tracker.track_usage(payload)
-                        raise connection_ex
-                    else:
-                        tracker.track_usage(payload)
-
-                    if connection_ex:
-                        raise connection_ex
+                elif creds.method == SparkConnectionMethod.CDE:
+                    handle = CDEApiSessionConnectionWrapper(CDEApiConnectionManager().connect(creds.user, creds.password, creds.auth_endpoint, creds.host))
                 else:
                     raise dbt.exceptions.DbtProfileError(
                         f"invalid credential method: {creds.method}"
