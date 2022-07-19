@@ -14,7 +14,7 @@ from dbt.events.types import ConnectionUsed, SQLQuery, SQLQueryStatus
 from dbt.events import AdapterLogger
 from dbt.events.functions import fire_event
 from dbt.utils import DECIMALS
-from dbt.adapters.spark import __version__
+from dbt.adapters.spark_cde import __version__
 from dbt.tracking import DBT_INVOCATION_ENV
 
 try:
