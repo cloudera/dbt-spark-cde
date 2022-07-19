@@ -14,10 +14,9 @@ import dbt.exceptions
 from dbt.adapters.base import AdapterConfig
 from dbt.adapters.base.impl import catch_as_completed
 from dbt.adapters.sql import SQLAdapter
-from dbt.adapters.spark_livy import SparkConnectionManager
-from dbt.adapters.spark_livy import SparkRelation
-from dbt.adapters.spark_livy import SparkColumn
-import dbt.adapters.spark_livy.cloudera_tracking as tracker
+from dbt.adapters.spark_cde import SparkConnectionManager
+from dbt.adapters.spark_cde import SparkRelation
+from dbt.adapters.spark_cde import SparkColumn
 from dbt.adapters.base import BaseRelation
 from dbt.clients.agate_helper import DEFAULT_TYPE_TESTER
 from dbt.events import AdapterLogger
