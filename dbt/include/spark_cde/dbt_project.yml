@@ -1,5 +1,5 @@
-name: dbt_spark_livy
-version: 1.2.0
+name: dbt_spark_cde
+version: 1.0
 config-version: 2
 
 macro-paths: ["macros"]
