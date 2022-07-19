@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+import os
+import sys
+import re
 
 from setuptools import find_namespace_packages, setup
 # require python 3.7 or newer
@@ -60,6 +63,7 @@ all_extras = odbc_extras + pyhive_extras + session_extras
 setup(
     name=package_name,
     version=package_version,
+    description=description,
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Cloudera",
@@ -75,15 +79,22 @@ setup(
         "requests-toolbelt>=0.9.1",
         "python-decouple>=3.6"
     ],
+    extras_require={
+        "ODBC": odbc_extras,
+        "PyHive": pyhive_extras,
+        "session": session_extras,
+        "all": all_extras,
+    },
+    zip_safe=False,
     classifiers=[
-        "Development Status :: 4 - Beta",
-        "Operating System :: MacOS :: MacOS X",
+        "Development Status :: 5 - Production/Stable",
+        "License :: OSI Approved :: Apache Software License",
         "Operating System :: Microsoft :: Windows",
+        "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
+        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
-        "License :: OSI Approved :: Apache Software License"
     ],
-    zip_safe=False
     python_requires=">=3.7",
 )

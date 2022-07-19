@@ -1,4 +1,4 @@
-{% materialization table, adapter = 'spark_livy' %}
+{% materialization table, adapter = 'spark' %}
 
   {%- set identifier = model['alias'] -%}
   {%- set grant_config = config.get('grants') -%}
