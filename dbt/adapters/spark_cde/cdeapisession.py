@@ -34,6 +34,7 @@ logger = AdapterLogger("Spark")
 DEFAULT_POLL_WAIT = 2 # seconds
 DEFAULT_LOG_WAIT = 5 # seconds
 DEFAULT_RETRIES = 5 # max number of retries for fetching log
+MIN_LINES_TO_PARSE = 3 # minimum lines in the logs file before we can start to parse the sql output 
 NUMBERS = DECIMALS + (int, float)
 
 class CDEApiCursor:
@@ -284,7 +285,7 @@ class CDEApiConnection:
 
         no_of_retries = 0
 
-        while len(res_lines) == 0:
+        while len(res_lines) <= MIN_LINES_TO_PARSE:  # ensure that enough lines are present to start parsing
             req_url = self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/logs?type=driver%2Fstdout&follow=true"
             res = requests.get(req_url, headers=self.api_header)
 
@@ -299,17 +300,17 @@ class CDEApiConnection:
             # parse the o/p for data
             res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
 
-            # print("getJobOutput - lines", res_lines)
+            # print("getJobOutput - lines", res_lines, len(res_lines))
 
             n_lines = len(res_lines)
-            if (n_lines > 3): break  # we have some o/p to process, break out - what happens for CREATE stm?
+            if (n_lines > MIN_LINES_TO_PARSE): break  # we have some o/p to process, break out - what happens for CREATE stm?
 
             no_of_retries += 1
-            # if (len(res_lines) <= 3):
+            # if (len(res_lines) <= MIN_LINES_TO_PARSE):
             #     print("getJobOutput - retrying ", no_of_retries, " of ", DEFAULT_RETRIES, " (", job, ")")
 
             if (no_of_retries > DEFAULT_RETRIES): 
-                print("getJobOutput - exceeded retries")
+                # print("getJobOutput - exceeded retries")
                 break
 
             time.sleep(DEFAULT_LOG_WAIT)
@@ -318,7 +319,7 @@ class CDEApiConnection:
         for line in res_lines:
             line_number += 1
 
-            # print(line_number, line)
+            # print("parse o/p", line_number, line)
 
             if (line.strip().startswith("+-")):
                 break
@@ -334,12 +335,69 @@ class CDEApiConnection:
         rows = []
         for data_line in res_lines[line_number+2:]:
             data_line = data_line.strip()
-            # print(line_number, data_line)
+            # print("parse o/p", data_line)
             if (data_line.startswith("+-")): break
-            row = list(map(lambda x: x.strip(), list(filter(lambda x: x.strip() != "", data_line.split("|")))))[0]
+            row = list(map(lambda x: x.strip(), list(filter(lambda x: x.strip() != "", data_line.split("|")))))
+            # print("parsed row", row)
             rows.append(row)
         # print("getJobOutput - rows ", rows)
-                        
+
+        # extract datatypes based on data in first row (string, number or boolean)
+        if (len(rows) > 0):
+            try:
+                schema, rows = self.extractDatatypes(schema, rows)
+            except Exception as e:
+                import traceback
+                print(traceback.format_exc())
+
+        return schema, rows
+
+    # since CDE API output of job-runs/{id}/logs doesn't return schema type, but only the SQL output, 
+    # we need to infer the datatype of each column and update it in schema record. currently only number 
+    # and bolean type information is inferred and the rest is defaulted to string.
+    def extractDatatypes(self, schema, rows):
+        first_row = rows[0]
+        
+        # if we do not have full schema info, do not attempt to extract datatypes
+        if (len(schema) != len(first_row)):
+            return schema, rows
+
+        # TODO: do we handle date types separately ?
+
+        is_number = lambda x: x.isnumeric()  # check numeric type
+        is_logical = lambda x: x == "true" or x == "false" or x == "True" or x == "False" # check boolean type
+        is_true = lambda x: x == "true" or x == "True" # check if the value is true
+        
+        convert_number = lambda x: float(x) # convert to number
+        convert_logical = lambda x: is_true(x) # convert to boolean
+
+        # conversion map
+        convert_map = { "number": convert_number, "boolean": convert_logical, "string": lambda x: x } 
+
+        # convert a row entry based on column type mapping
+        def convertType(row, col_types):
+            for idx in range(len(row)):
+                col = row[idx]
+                col_type = col_types[idx]
+                row[idx] = convert_map[col_type](col)
+        
+        # extact type info based on column data
+        def getType(col_data):
+            if (is_number(col_data)): return "number"
+            elif (is_logical(col_data)): return "boolean"
+            else: return "string"  
+
+        col_types = list(map(lambda x: getType(x), first_row))
+
+        # for each row apply the type conversion 
+        for row in rows:
+            convertType(row, col_types)    
+
+        # record the type info into schema dict
+        n_cols = len(col_types)
+        for idx in range(n_cols):
+            schema[idx]["type"] = col_types[idx]
+
         return schema, rows
 
     def deleteJob(self, job_name):
