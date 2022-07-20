@@ -28,7 +28,7 @@ demo_project:
   target: dev
   outputs:
     dev:
-     type: spark
+     type: spark_cde
      method: cde
      schema: my_db
      auth_endpoint: https://service.spark-cde-gateway.my.org.com/
