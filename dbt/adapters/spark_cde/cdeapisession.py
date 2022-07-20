@@ -32,8 +32,8 @@ from dbt.utils import DECIMALS
 logger = AdapterLogger("Spark")
 
 DEFAULT_POLL_WAIT = 2 # seconds
-DEFAULT_LOG_WAIT = 5 # seconds
-DEFAULT_RETRIES = 5 # max number of retries for fetching log
+DEFAULT_LOG_WAIT = 10 # seconds
+DEFAULT_RETRIES = 10 # max number of retries for fetching log
 MIN_LINES_TO_PARSE = 3 # minimum lines in the logs file before we can start to parse the sql output 
 NUMBERS = DECIMALS + (int, float)
 
