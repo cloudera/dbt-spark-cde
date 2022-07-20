@@ -71,12 +71,13 @@ class SparkCredentials(Credentials):
     host: str
     method: SparkConnectionMethod
     auth_endpoint: str
+    user: str
+    password: str
     database: Optional[str]
     driver: Optional[str] = None
     cluster: Optional[str] = None
     endpoint: Optional[str] = None
     token: Optional[str] = None
-    user: Optional[str] = None
     port: int = 443
     auth: Optional[str] = None
     kerberos_service_name: Optional[str] = None
