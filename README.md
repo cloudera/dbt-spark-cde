@@ -13,6 +13,10 @@ Python >= 3.8
 
 dbt-core >= 1.1.0
 
+requests >= 2.28.1
+
+requests-toolbelt >= 0.9.1
+
 pyspark
 
 sqlparams
