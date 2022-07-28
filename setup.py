@@ -70,7 +70,7 @@ setup(
     author_email="innovation-feedback@cloudera.com",
     url="https://github.com/cloudera/dbt-spark-livy",
     packages=find_namespace_packages(include=["dbt", "dbt.*"]),
-    data_files=[('', ['dbt/adapters/spark_livy/.env'])],
+    data_files=[('', ['dbt/adapters/spark_cde/.env'])],
     include_package_data=True,
     install_requires=[
         "dbt-core~={}".format(dbt_core_version),
