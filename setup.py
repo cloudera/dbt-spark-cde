@@ -68,7 +68,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Cloudera",
     author_email="innovation-feedback@cloudera.com",
-    url="https://github.com/cloudera/dbt-spark-livy",
+    url="https://github.com/cloudera/dbt-spark-cde",
     packages=find_namespace_packages(include=["dbt", "dbt.*"]),
     data_files=[('', ['dbt/adapters/spark_cde/.env'])],
     include_package_data=True,
