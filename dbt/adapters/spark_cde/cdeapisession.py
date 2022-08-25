@@ -124,19 +124,30 @@ class CDEApiCursor:
         while job_status["status"] != CDEApiConnection.JOB_STATUS['succeeded']:
             time.sleep(DEFAULT_POLL_WAIT)
             job_status = self._cde_connection.getJobRunStatus(job).json()
-
+            # throw exception and print to console for failed job.
             if (job_status["status"] == CDEApiConnection.JOB_STATUS['failed']):
                 print("Job Failed", sql, job_status)
                 raise dbt.exceptions.raise_database_error(
                         'Error while executing query: ' + repr(job_status)
-                    ) 
+                )
+                
+        logger.debug("***************CDE JOB DEBUGGING START: ******************")
+        logger.debug("Job created with id: {}".format(job_name))
+        logger.debug("Job created with sql statement: {}".format(sql))
+        logger.debug("Job status: {}".format(job_status["status"]))
+        logger.debug("Job run other details: {}".format(job_status))
+        logger.debug("***************CDE JOB DEBUGGING END:  ******************")
 
+
+            
         # 5. fetch and populate the results 
         time.sleep(DEFAULT_LOG_WAIT) # wait before trying to access the log - so as to ensure that the logs are written to the bucket
         # print("execute - sql", job, sql)
         # log_types = self._cde_connection.getJobLogTypes(job)
         # print("execute - log_types", log_types)
+        logger.debug("***************CDE SESSION LOG START:  ******************")
         schema, rows = self._cde_connection.getJobOutput(job)
+        logger.debug("***************CDE SESSION LOG END:  ******************")
 
         self._rows = rows
         self._schema = schema 
@@ -315,6 +326,8 @@ class CDEApiConnection:
 
             time.sleep(DEFAULT_LOG_WAIT)
             
+        logger.debug("Log result stdout: {}".format(res.text.split("\n")))
+        
         line_number = 0
         for line in res_lines:
             line_number += 1
