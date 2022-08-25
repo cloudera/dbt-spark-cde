@@ -119,12 +119,18 @@ class CDEApiCursor:
     
         # 3. run the job
         job_status = self._cde_connection.getJobRunStatus(job).json()
-
-        # 4. wait for the result
-        while (job_status["status"] != CDEApiConnection.JOB_STATUS['succeeded']) or (job_status["status"] == CDEApiConnection.JOB_STATUS['failed']):
+        
+        # 4. wait for the result       
+        while job_status["status"] != CDEApiConnection.JOB_STATUS['succeeded']:
             time.sleep(DEFAULT_POLL_WAIT)
             job_status = self._cde_connection.getJobRunStatus(job).json()
-
+            # throw exception and print to console for failed job.
+            if (job_status["status"] == CDEApiConnection.JOB_STATUS['failed']):
+                print("Job Failed", sql, job_status)
+                raise dbt.exceptions.raise_database_error(
+                        'Error while executing query: ' + repr(job_status)
+                )
+                
         logger.debug("***************CDE JOB DEBUGGING START: ******************")
         logger.debug("Job created with id: {}".format(job_name))
         logger.debug("Job created with sql statement: {}".format(sql))
@@ -132,12 +138,7 @@ class CDEApiCursor:
         logger.debug("Job run other details: {}".format(job_status))
         logger.debug("***************CDE JOB DEBUGGING END:  ******************")
 
-        # throw exception and print to console for failed job.
-        if (job_status["status"] == CDEApiConnection.JOB_STATUS['failed']):
-            print("Job Failed", sql, job_status)
-            raise dbt.exceptions.raise_database_error(
-                'Error while executing query: ' + repr(job_status)
-            )
+
             
         # 5. fetch and populate the results 
         time.sleep(DEFAULT_LOG_WAIT) # wait before trying to access the log - so as to ensure that the logs are written to the bucket
