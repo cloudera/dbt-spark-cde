@@ -98,28 +98,40 @@ class CDEApiCursor:
         # print("Job execute", sql)
 
         # 0. generate a job name
+        generateJobNameStartTime = time.time()
         job_name = self._generateJobName()
-
+        generateJobNameEndTime = time.time()
+        
         # 1. create resource
+        generateResourceStartTime = time.time()
         self._cde_connection.deleteResource(job_name)
         self._cde_connection.createResource(job_name, "files")
+        generateResourceEndTime = time.time()
 
         sql_resource = self._cde_api_helper.generateSQLResource(job_name, sql)
         py_resource  = self._cde_api_helper.getPythonWrapperResource(sql_resource)
 
         # 2. upload the resource
+        uploadResourceStartTime = time.time()
         self._cde_connection.uploadResource(job_name, sql_resource)
         self._cde_connection.uploadResource(job_name, py_resource)
-
+        uploadResourceEndTime = time.time()
+        
         # 2. submit the job
+        deleteJobStartTime = time.time()
         self._cde_connection.deleteJob(job_name)
+        deleteJobEndTime = time.time()
+        
+        submitJobStartTime = time.time()
         self._cde_connection.submitJob(job_name, job_name, sql_resource, py_resource)
+        submitJobEndTime = time.time()
+        
+        runJobStartTime = time.time()
         job = self._cde_connection.runJob(job_name).json()
         self._cde_connection.getJobStatus(job_name)
     
         # 3. run the job
-        job_status = self._cde_connection.getJobRunStatus(job).json()
-        
+        job_status = self._cde_connection.getJobRunStatus(job).json()        
         # 4. wait for the result       
         while job_status["status"] != CDEApiConnection.JOB_STATUS['succeeded']:
             time.sleep(DEFAULT_POLL_WAIT)
@@ -127,6 +139,7 @@ class CDEApiCursor:
             # throw exception and print to console for failed job.
             if (job_status["status"] == CDEApiConnection.JOB_STATUS['failed']):
                 print("Job Failed", sql, job_status)
+                self._cde_connection.getJobOutput(job)
                 raise dbt.exceptions.raise_database_error(
                         'Error while executing query: ' + repr(job_status)
                 )
@@ -137,7 +150,7 @@ class CDEApiCursor:
         logger.debug("Job status: {}".format(job_status["status"]))
         logger.debug("Job run other details: {}".format(job_status))
         logger.debug("***************CDE JOB DEBUGGING END:  ******************")
-
+        runJobEndTime = time.time()
 
             
         # 5. fetch and populate the results 
@@ -146,16 +159,32 @@ class CDEApiCursor:
         # log_types = self._cde_connection.getJobLogTypes(job)
         # print("execute - log_types", log_types)
         logger.debug("***************CDE SESSION LOG START:  ******************")
+        getJobResultsStartTime = time.time()
         schema, rows = self._cde_connection.getJobOutput(job)
+        getJobResultsEndTime = time.time()
         logger.debug("***************CDE SESSION LOG END:  ******************")
 
         self._rows = rows
         self._schema = schema 
 
         # 6. cleanup resources
+        deleteResourceStartTime = time.time()
         self._cde_connection.deleteResource(job_name)
         self._cde_connection.deleteJob(job_name)
+        deleteResourceEndTime = time.time()
         
+        #Profile each individual method being invocated in the session
+        logger.debug("***************   CDE SESSION PROFILE START:(Timings in secs)  ******************")
+        logger.debug("Generate job name : {:.3f}".format(generateJobNameEndTime - generateJobNameStartTime))
+        logger.debug("Generate resouce : {:.3f}".format(generateResourceEndTime - generateResourceStartTime))
+        logger.debug("Upload resource : {:.3f}".format(uploadResourceEndTime - uploadResourceStartTime))
+        logger.debug("Delete Job : {:.3f}".format(deleteJobEndTime - deleteJobStartTime))
+        logger.debug("Submit job : {:.3f}".format(submitJobEndTime - submitJobStartTime))
+        logger.debug("Run Job : {:.3f}".format(runJobEndTime - runJobStartTime))
+        logger.debug("Fetch job results(from s3) : {:.3f}".format(getJobResultsEndTime - getJobResultsStartTime))
+        logger.debug("Delete resource : {:.3f}".format(deleteResourceEndTime - deleteResourceStartTime))
+        logger.debug("***************    CDE SESSION PROFILE END:       ********************************")
+
     def fetchall(self):
         return self._rows
 
