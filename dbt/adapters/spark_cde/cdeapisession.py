@@ -28,8 +28,9 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 import dbt.exceptions
 from dbt.events import AdapterLogger
 from dbt.utils import DECIMALS
-
+from dbt.adapters.spark_cde.adaptertimer import AdapterTimer
 logger = AdapterLogger("Spark")
+adapter_timer = AdapterTimer()
 
 DEFAULT_POLL_WAIT = 2 # seconds
 DEFAULT_LOG_WAIT = 10 # seconds
@@ -98,28 +99,41 @@ class CDEApiCursor:
         # print("Job execute", sql)
 
         # 0. generate a job name
+        adapter_timer.start_timer("generateJobName")
         job_name = self._generateJobName()
-
+        adapter_timer.end_timer("generateJobName")
+        
         # 1. create resource
+        adapter_timer.start_timer("generateResource")
+        generateResourceStartTime = time.time()
         self._cde_connection.deleteResource(job_name)
         self._cde_connection.createResource(job_name, "files")
+        adapter_timer.end_timer("generateResource")
 
         sql_resource = self._cde_api_helper.generateSQLResource(job_name, sql)
         py_resource  = self._cde_api_helper.getPythonWrapperResource(sql_resource)
 
         # 2. upload the resource
+        adapter_timer.start_timer("uploadResource")
         self._cde_connection.uploadResource(job_name, sql_resource)
         self._cde_connection.uploadResource(job_name, py_resource)
-
+        adapter_timer.end_timer("uploadResource")
+        
         # 2. submit the job
+        adapter_timer.start_timer("deleteJob")
         self._cde_connection.deleteJob(job_name)
+        adapter_timer.end_timer("deleteJob")
+        
+        adapter_timer.start_timer("submitJob")
         self._cde_connection.submitJob(job_name, job_name, sql_resource, py_resource)
+        adapter_timer.end_timer("submitJob")
+        
+        adapter_timer.start_timer("runJob")
         job = self._cde_connection.runJob(job_name).json()
         self._cde_connection.getJobStatus(job_name)
     
         # 3. run the job
-        job_status = self._cde_connection.getJobRunStatus(job).json()
-        
+        job_status = self._cde_connection.getJobRunStatus(job).json()        
         # 4. wait for the result       
         while job_status["status"] != CDEApiConnection.JOB_STATUS['succeeded']:
             time.sleep(DEFAULT_POLL_WAIT)
@@ -127,6 +141,7 @@ class CDEApiCursor:
             # throw exception and print to console for failed job.
             if (job_status["status"] == CDEApiConnection.JOB_STATUS['failed']):
                 print("Job Failed", sql, job_status)
+                self._cde_connection.getJobOutput(job)
                 raise dbt.exceptions.raise_database_error(
                         'Error while executing query: ' + repr(job_status)
                 )
@@ -137,7 +152,7 @@ class CDEApiCursor:
         logger.debug("Job status: {}".format(job_status["status"]))
         logger.debug("Job run other details: {}".format(job_status))
         logger.debug("***************CDE JOB DEBUGGING END:  ******************")
-
+        adapter_timer.end_timer("runJob")
 
             
         # 5. fetch and populate the results 
@@ -146,16 +161,25 @@ class CDEApiCursor:
         # log_types = self._cde_connection.getJobLogTypes(job)
         # print("execute - log_types", log_types)
         logger.debug("***************CDE SESSION LOG START:  ******************")
+        adapter_timer.start_timer("getJobResults")
         schema, rows = self._cde_connection.getJobOutput(job)
+        adapter_timer.end_timer("getJobResults")
         logger.debug("***************CDE SESSION LOG END:  ******************")
 
         self._rows = rows
         self._schema = schema 
 
         # 6. cleanup resources
+        adapter_timer.start_timer("deleteResource")
         self._cde_connection.deleteResource(job_name)
         self._cde_connection.deleteJob(job_name)
+        adapter_timer.end_timer("deleteResource")
         
+        #Profile each individual method being invocated in the session
+        logger.debug("***************   CDE SESSION PROFILE START:(Timings in secs)  ******************")
+        adapter_timer.log_summary()
+        logger.debug("***************    CDE SESSION PROFILE END:       ********************************")
+
     def fetchall(self):
         return self._rows
 
