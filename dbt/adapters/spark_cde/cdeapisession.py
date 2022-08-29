@@ -24,6 +24,8 @@ import datetime as dt
 from types import TracebackType
 from typing import Any
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+from pprint import pformat
+import random
 
 import dbt.exceptions
 from dbt.events import AdapterLogger
@@ -32,8 +34,8 @@ from dbt.adapters.spark_cde.adaptertimer import AdapterTimer
 logger = AdapterLogger("Spark")
 adapter_timer = AdapterTimer()
 
-DEFAULT_POLL_WAIT = 2 # seconds
-DEFAULT_LOG_WAIT = 10 # seconds
+DEFAULT_POLL_WAIT = 5 # seconds
+DEFAULT_LOG_WAIT = 20 # seconds
 DEFAULT_RETRIES = 10 # max number of retries for fetching log
 MIN_LINES_TO_PARSE = 3 # minimum lines in the logs file before we can start to parse the sql output 
 NUMBERS = DECIMALS + (int, float)
@@ -87,11 +89,14 @@ class CDEApiCursor:
         # TODO: kill the running job?
 
     def _generateJobName(self):
-        time_ms = round(time.time()*1000)
+        time_ms = round(time.time()*1000 + random.randint(1,10000))
         job_name = "cde_api_session_job" + "-" + repr(time_ms)
         return job_name
 
     def execute(self, sql: str, *parameters: Any) -> None:
+        time_slept_while_polling_jobstatus = 0
+        time_slept_while_polling_jobresults = 0
+        
         if len(parameters) > 0:
             sql = sql % parameters
         
@@ -105,7 +110,6 @@ class CDEApiCursor:
         
         # 1. create resource
         adapter_timer.start_timer("generateResource")
-        generateResourceStartTime = time.time()
         self._cde_connection.deleteResource(job_name)
         self._cde_connection.createResource(job_name, "files")
         adapter_timer.end_timer("generateResource")
@@ -127,44 +131,51 @@ class CDEApiCursor:
         adapter_timer.start_timer("submitJob")
         self._cde_connection.submitJob(job_name, job_name, sql_resource, py_resource)
         adapter_timer.end_timer("submitJob")
+        logger.debug("{} .Job created with id: {}".format(job_name, job_name))
+        logger.debug("{} .Job created with sql statement: {}".format(job_name, sql))
         
-        adapter_timer.start_timer("runJob")
+        adapter_timer.start_timer("runJob(spark_exec+sleep)")
         job = self._cde_connection.runJob(job_name).json()
-        self._cde_connection.getJobStatus(job_name)
+        #self._cde_connection.getJobStatus(job_name)
     
         # 3. run the job
         job_status = self._cde_connection.getJobRunStatus(job).json()        
-        # 4. wait for the result       
+        logger.debug("{} .Job status: {}".format(job_name, job_status["status"]))
+        logger.debug("{} .Job run other details: {}".format(job_name, pformat(job_status)))
+
+        # 4. wait for the result    
         while job_status["status"] != CDEApiConnection.JOB_STATUS['succeeded']:
+            logger.debug("{} .Sleeping for {} seconds while polling jobstatus.".format(job_name, DEFAULT_POLL_WAIT))
             time.sleep(DEFAULT_POLL_WAIT)
+            time_slept_while_polling_jobstatus += DEFAULT_POLL_WAIT
             job_status = self._cde_connection.getJobRunStatus(job).json()
+            logger.debug("{} .Job status: {}".format(job_name, job_status["status"]))
+            
             # throw exception and print to console for failed job.
             if (job_status["status"] == CDEApiConnection.JOB_STATUS['failed']):
-                print("Job Failed", sql, job_status)
-                self._cde_connection.getJobOutput(job)
+                #print("Job Failed", sql, job_status)
+                logger.error("{} .Job status: {}".format(job_name, job_status["status"]))
+                schema, rows, job_output, time_slept_while_polling_jobresults  = self._cde_connection.getJobOutput(job_name, job)
+                logger.error("{} .Log result stdout.Sql run failed with error: {}".format(job_name, job_output.text))
                 raise dbt.exceptions.raise_database_error(
                         'Error while executing query: ' + repr(job_status)
                 )
-                
-        logger.debug("***************CDE JOB DEBUGGING START: ******************")
-        logger.debug("Job created with id: {}".format(job_name))
-        logger.debug("Job created with sql statement: {}".format(sql))
-        logger.debug("Job status: {}".format(job_status["status"]))
-        logger.debug("Job run other details: {}".format(job_status))
-        logger.debug("***************CDE JOB DEBUGGING END:  ******************")
-        adapter_timer.end_timer("runJob")
 
-            
+        adapter_timer.end_timer("runJob(spark_exec+sleep)")  
+
+
         # 5. fetch and populate the results 
+        adapter_timer.start_timer("getJobResults")
+        time_slept_while_polling_jobresults += DEFAULT_LOG_WAIT
+        logger.debug("{} .Sleeping for {} seconds while fetching result logs.".format(job_name, DEFAULT_LOG_WAIT))
         time.sleep(DEFAULT_LOG_WAIT) # wait before trying to access the log - so as to ensure that the logs are written to the bucket
         # print("execute - sql", job, sql)
         # log_types = self._cde_connection.getJobLogTypes(job)
         # print("execute - log_types", log_types)
-        logger.debug("***************CDE SESSION LOG START:  ******************")
-        adapter_timer.start_timer("getJobResults")
-        schema, rows = self._cde_connection.getJobOutput(job)
+        schema, rows, job_output, time_slept  = self._cde_connection.getJobOutput(job_name, job)
         adapter_timer.end_timer("getJobResults")
-        logger.debug("***************CDE SESSION LOG END:  ******************")
+        time_slept_while_polling_jobresults += time_slept
+        logger.debug("{} .Log result stdout: {}".format(job_name, job_output.text))
 
         self._rows = rows
         self._schema = schema 
@@ -176,9 +187,21 @@ class CDEApiCursor:
         adapter_timer.end_timer("deleteResource")
         
         #Profile each individual method being invocated in the session
-        logger.debug("***************   CDE SESSION PROFILE START:(Timings in secs)  ******************")
-        adapter_timer.log_summary()
-        logger.debug("***************    CDE SESSION PROFILE END:       ********************************")
+        adapter_timer.log_summary(job_name)
+        logger.debug("{job_name:<40}{time_slept_while_polling_jobstatus:10.2f}".format(job_name= job_name + "\t   " + 
+                                                                             "total time slept while checking job status runJob(starting->running->succeded/failed) : ", 
+                                                                             time_slept_while_polling_jobstatus = time_slept_while_polling_jobstatus))
+        logger.debug("{job_name:<40}{time_slept_while_polling_jobresults:10.2f}".format(job_name= job_name + "\t   " + 
+                                                                             "total time slept while fetching job output from logs(getJobResults): ", 
+                                                                             time_slept_while_polling_jobresults = time_slept_while_polling_jobresults))
+        
+        events, job_output, time_slept   = self._cde_connection.getJobOutput(job_name,job,log_type = 'event')
+        logger.debug("Fetching spark events logs for {}".format(job_name))
+        for r in events:
+            logger.debug("{job_name:<40}{event:<40}{Timestamp:<40}".format(job_name=job_name, event=r['Event'], Timestamp=r['Timestamp']))
+        
+        logger.debug("{:<40}Spark event execution time in secs{:10.2f}".format(job_name, (events[-1]['Timestamp']-events[0]['Timestamp'])/1000))
+            
 
     def fetchall(self):
         return self._rows
@@ -312,46 +335,11 @@ class CDEApiConnection:
         # print("getJobLogTypes - res.text", res.text)
 
         return res
-
-    def getJobOutput(self, job):
-        res_lines = []
+    
+    def parseQueryResult(self, res_lines):
         schema = []
         rows = []
 
-        no_of_retries = 0
-
-        while len(res_lines) <= MIN_LINES_TO_PARSE:  # ensure that enough lines are present to start parsing
-            req_url = self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/logs?type=driver%2Fstdout&follow=true"
-            res = requests.get(req_url, headers=self.api_header)
-
-            # print("getJobOutput - url", req_url)
-            # print("getJobOutput - job", job)
-            # print("getJobOutput - res", res)
-            # print("getJobOutput - res.text", res.text)
-
-            schema = []
-            rows = []
-
-            # parse the o/p for data
-            res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
-
-            # print("getJobOutput - lines", res_lines, len(res_lines))
-
-            n_lines = len(res_lines)
-            if (n_lines > MIN_LINES_TO_PARSE): break  # we have some o/p to process, break out - what happens for CREATE stm?
-
-            no_of_retries += 1
-            # if (len(res_lines) <= MIN_LINES_TO_PARSE):
-            #     print("getJobOutput - retrying ", no_of_retries, " of ", DEFAULT_RETRIES, " (", job, ")")
-
-            if (no_of_retries > DEFAULT_RETRIES): 
-                # print("getJobOutput - exceeded retries")
-                break
-
-            time.sleep(DEFAULT_LOG_WAIT)
-            
-        logger.debug("Log result stdout: {}".format(res.text.split("\n")))
-        
         line_number = 0
         for line in res_lines:
             line_number += 1
@@ -388,6 +376,61 @@ class CDEApiConnection:
                 print(traceback.format_exc())
 
         return schema, rows
+    
+    def parseEventResult(self, res_lines):
+        events = []
+        
+        for event_line in res_lines:
+            # logger.debug("parseEventResult event line {}".format(event_line))
+            if len(event_line.strip()):
+                json_rec = json.loads(event_line)
+                if ('Timestamp' in json_rec):
+                    events.append(json_rec)
+                
+        return events
+
+    def getJobOutput(self, job_name, job, log_type="stdout"):  # log_type can be "stdout", "stderr", "event"
+        time_slept_while_polling_logresults = 0
+        res_lines = []
+        
+        no_of_retries = 0
+
+        while len(res_lines) <= MIN_LINES_TO_PARSE:  # ensure that enough lines are present to start parsing
+            req_url = self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/logs?type=driver%2F" + log_type + "&follow=true"
+            res = requests.get(req_url, headers=self.api_header)
+
+            # print("getJobOutput - url", req_url)
+            # print("getJobOutput - job", job)
+            # print("getJobOutput - res", res)
+            # print("getJobOutput - res.text", res.text)
+
+            # parse the o/p for data
+            res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
+
+            # print("getJobOutput - lines", res_lines, len(res_lines))
+
+            n_lines = len(res_lines)
+            if (n_lines > MIN_LINES_TO_PARSE): break  # we have some o/p to process, break out - what happens for CREATE stm?
+
+            no_of_retries += 1
+            # if (len(res_lines) <= MIN_LINES_TO_PARSE):
+            #     print("getJobOutput - retrying ", no_of_retries, " of ", DEFAULT_RETRIES, " (", job, ")")
+
+            if (no_of_retries > DEFAULT_RETRIES): 
+                # print("getJobOutput - exceeded retries")
+                break
+            
+            time_slept_while_polling_logresults += DEFAULT_LOG_WAIT
+            logger.debug("{} .Sleeping for {} seconds while fetching result logs.".format(job_name, DEFAULT_LOG_WAIT))
+            time.sleep(DEFAULT_LOG_WAIT)
+        
+        if (log_type == "stdout"):
+            schema, rows = self.parseQueryResult(res_lines)
+            return schema, rows, res, time_slept_while_polling_logresults
+        elif (log_type == "event"):
+            return self.parseEventResult(res_lines), res, time_slept_while_polling_logresults
+        else:
+            return res_lines, res, time_slept_while_polling_logresults
 
     # since CDE API output of job-runs/{id}/logs doesn't return schema type, but only the SQL output, 
     # we need to infer the datatype of each column and update it in schema record. currently only number 

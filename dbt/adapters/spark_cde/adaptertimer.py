@@ -41,7 +41,7 @@ class AdapterTimer:
             print("Timer ", timer_name, " not found")
         return None
 
-    def log_summary(self):
-        logger.debug("Job name\t\t\telapsed(in secs)")
+    def log_summary(self, job_name):
+        logger.debug("\n")
         for timer in self._timers:
-            logger.debug("{name:<20}{elapsed:10.2f}".format(name=timer["name"], elapsed=timer["elapsed_time"]))
+            logger.debug("{job_name:<40}{name:<40}{elapsed:20.2f}".format(job_name= job_name+ "\t", name=timer["name"], elapsed=timer["elapsed_time"]))
