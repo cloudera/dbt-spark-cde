@@ -15,17 +15,16 @@
 """CDE API session integration."""
 
 import datetime as dt
+import dbt.exceptions
 import io
 import json
+import requests
 import time
 import traceback
 from types import TracebackType
 from typing import Any
 from urllib.parse import urlencode
 
-import dbt.exceptions
-import requests
-# API based CDE access
 from dbt.adapters.spark_cde.adaptertimer import AdapterTimer
 from dbt.events import AdapterLogger
 from dbt.utils import DECIMALS
