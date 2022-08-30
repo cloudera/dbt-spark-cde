@@ -65,7 +65,9 @@ class SparkAdapter(SQLAdapter):
         "stats:rows:description",
         "stats:rows:include",
     )
-    INFORMATION_COLUMNS_REGEX = re.compile(r"^ \|-- (.*): (.*) \(nullable = (.*)\b", re.MULTILINE)
+    INFORMATION_COLUMNS_REGEX = re.compile(
+        r"^ \|-- (.*): (.*) \(nullable = (.*)\b", re.MULTILINE
+    )
     INFORMATION_OWNER_REGEX = re.compile(r"^Owner: (.*)$", re.MULTILINE)
     INFORMATION_STATISTICS_REGEX = re.compile(r"^Statistics: (.*)$", re.MULTILINE)
     HUDI_METADATA_COLUMNS = [
@@ -127,13 +129,13 @@ class SparkAdapter(SQLAdapter):
         kwargs = {"schema_relation": schema_relation}
         try:
             results = self.execute_macro(LIST_RELATIONS_MACRO_NAME, kwargs=kwargs)
-        except dbt.exceptions.RuntimeException as e:
-            errmsg = getattr(e, "msg", "")
+        except dbt.exceptions.RuntimeException as exception:
+            errmsg = getattr(exception, "msg", "")
             if f"Database '{schema_relation}' not found" in errmsg:
                 return []
             else:
                 description = "Error while retrieving information about"
-                logger.debug(f"{description} {schema_relation}: {e.msg}")
+                logger.debug(f"{description} {schema_relation}: {exception.msg}")
                 return []
 
         relations = []
@@ -144,7 +146,9 @@ class SparkAdapter(SQLAdapter):
                     f"got {len(row)} values, expected 4"
                 )
             _schema, name, _, information = row
-            rel_type = RelationType.View if "Type: VIEW" in information else RelationType.Table
+            rel_type = (
+                RelationType.View if "Type: VIEW" in information else RelationType.Table
+            )
             is_delta = "Provider: delta" in information
             is_hudi = "Provider: hudi" in information
             relation = self.Relation.create(
@@ -226,28 +230,36 @@ class SparkAdapter(SQLAdapter):
             # which would execute 'describe extended tablename' query
             try:
                 rows: List[agate.Row] = self.execute_macro(
-                    GET_COLUMNS_IN_RELATION_RAW_MACRO_NAME, kwargs={"relation": relation}
+                    GET_COLUMNS_IN_RELATION_RAW_MACRO_NAME,
+                    kwargs={"relation": relation},
                 )
                 columns = self.parse_describe_extended(relation, rows)
-            except dbt.exceptions.RuntimeException as e:
+            except dbt.exceptions.RuntimeException as exception:
                 # spark would throw error when table doesn't exist, where other
                 # CDW would just return and empty list, normalizing the behavior here
-                errmsg = getattr(e, "msg", "")
-                if "Table or view not found" in errmsg or "NoSuchTableException" in errmsg:
+                errmsg = getattr(exception, "msg", "")
+                if (
+                    "Table or view not found" in errmsg
+                    or "NoSuchTableException" in errmsg
+                ):
                     pass
                 else:
-                    raise e
+                    raise exception
 
         # strip hudi metadata columns.
         columns = [x for x in columns if x.name not in self.HUDI_METADATA_COLUMNS]
         return columns
 
-    def parse_columns_from_information(self, relation: SparkRelation) -> List[SparkColumn]:
+    def parse_columns_from_information(
+        self, relation: SparkRelation
+    ) -> List[SparkColumn]:
         owner_match = re.findall(self.INFORMATION_OWNER_REGEX, relation.information)
         owner = owner_match[0] if owner_match else None
         matches = re.finditer(self.INFORMATION_COLUMNS_REGEX, relation.information)
         columns = []
-        stats_match = re.findall(self.INFORMATION_STATISTICS_REGEX, relation.information)
+        stats_match = re.findall(
+            self.INFORMATION_STATISTICS_REGEX, relation.information
+        )
         raw_table_stats = stats_match[0] if stats_match else None
         table_stats = SparkColumn.convert_table_stats(raw_table_stats)
         for match_num, match in enumerate(matches):
@@ -266,7 +278,9 @@ class SparkAdapter(SQLAdapter):
             columns.append(column)
         return columns
 
-    def _get_columns_for_catalog(self, relation: SparkRelation) -> Iterable[Dict[str, Any]]:
+    def _get_columns_for_catalog(
+        self, relation: SparkRelation
+    ) -> Iterable[Dict[str, Any]]:
         columns = self.parse_columns_from_information(relation)
 
         for column in columns:
@@ -287,7 +301,8 @@ class SparkAdapter(SQLAdapter):
         schema_map = self._get_catalog_schemas(manifest)
         if len(schema_map) > 1:
             dbt.exceptions.raise_compiler_error(
-                f"Expected only one database in get_catalog, found " f"{list(schema_map)}"
+                f"Expected only one database in get_catalog, found "
+                f"{list(schema_map)}"
             )
 
         with executor(self.config) as tpe:
@@ -296,7 +311,12 @@ class SparkAdapter(SQLAdapter):
                 for schema in schemas:
                     futures.append(
                         tpe.submit_connected(
-                            self, schema, self._get_one_catalog, info, [schema], manifest
+                            self,
+                            schema,
+                            self._get_one_catalog,
+                            info,
+                            [schema],
+                            manifest,
                         )
                     )
             catalogs, exceptions = catch_as_completed(futures)
@@ -310,7 +330,8 @@ class SparkAdapter(SQLAdapter):
     ) -> agate.Table:
         if len(schemas) != 1:
             dbt.exceptions.raise_compiler_error(
-                f"Expected only one schema in spark _get_one_catalog, found " f"{schemas}"
+                f"Expected only one schema in spark _get_one_catalog, found "
+                f"{schemas}"
             )
 
         database = information_schema.database
@@ -323,7 +344,9 @@ class SparkAdapter(SQLAdapter):
         return agate.Table.from_object(columns, column_types=DEFAULT_TYPE_TESTER)
 
     def check_schema_exists(self, database, schema):
-        results = self.execute_macro(LIST_SCHEMAS_MACRO_NAME, kwargs={"database": database})
+        results = self.execute_macro(
+            LIST_SCHEMAS_MACRO_NAME, kwargs={"database": database}
+        )
 
         exists = True if schema in [row[0] for row in results] else False
         return exists
@@ -373,9 +396,9 @@ class SparkAdapter(SQLAdapter):
                 return cursor.fetchall()
             else:
                 return
-        except BaseException as e:
+        except BaseException as exception:
             print(sql)
-            print(e)
+            print(exception)
             raise
         finally:
             conn.transaction_open = False

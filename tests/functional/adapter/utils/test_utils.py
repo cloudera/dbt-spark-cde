@@ -7,8 +7,12 @@ from dbt.tests.adapter.utils.test_concat import BaseConcat
 from dbt.tests.adapter.utils.test_dateadd import BaseDateAdd
 from dbt.tests.adapter.utils.test_datediff import BaseDateDiff
 from dbt.tests.adapter.utils.test_date_trunc import BaseDateTrunc
-from dbt.tests.adapter.utils.test_escape_single_quotes import BaseEscapeSingleQuotesQuote
-from dbt.tests.adapter.utils.test_escape_single_quotes import BaseEscapeSingleQuotesBackslash
+from dbt.tests.adapter.utils.test_escape_single_quotes import (
+    BaseEscapeSingleQuotesQuote,
+)
+from dbt.tests.adapter.utils.test_escape_single_quotes import (
+    BaseEscapeSingleQuotesBackslash,
+)
 from dbt.tests.adapter.utils.test_except import BaseExcept
 from dbt.tests.adapter.utils.test_hash import BaseHash
 from dbt.tests.adapter.utils.test_intersect import BaseIntersect
@@ -24,7 +28,9 @@ from dbt.tests.adapter.utils.test_string_literal import BaseStringLiteral
 # requires modification
 from dbt.tests.adapter.utils.test_listagg import BaseListagg
 from dbt.tests.adapter.utils.fixture_listagg import models__test_listagg_yml
-from tests.functional.adapter.utils.fixture_listagg import models__test_listagg_no_order_by_sql
+from tests.functional.adapter.utils.fixture_listagg import (
+    models__test_listagg_no_order_by_sql,
+)
 
 
 class TestAnyValue(BaseAnyValue):
@@ -39,7 +45,7 @@ class TestCastBoolToText(BaseCastBoolToText):
     pass
 
 
-@pytest.mark.skip_profile('spark_session')
+@pytest.mark.skip_profile("spark_session")
 class TestConcat(BaseConcat):
     pass
 
@@ -48,7 +54,7 @@ class TestDateAdd(BaseDateAdd):
     pass
 
 
-@pytest.mark.skip_profile('spark_session')
+@pytest.mark.skip_profile("spark_session")
 class TestDateDiff(BaseDateDiff):
     pass
 
@@ -65,7 +71,7 @@ class TestExcept(BaseExcept):
     pass
 
 
-@pytest.mark.skip_profile('spark_session')
+@pytest.mark.skip_profile("spark_session")
 class TestHash(BaseHash):
     pass
 
@@ -99,12 +105,12 @@ class TestPosition(BasePosition):
     pass
 
 
-@pytest.mark.skip_profile('spark_session')
+@pytest.mark.skip_profile("spark_session")
 class TestReplace(BaseReplace):
     pass
 
 
-@pytest.mark.skip_profile('spark_session')
+@pytest.mark.skip_profile("spark_session")
 class TestRight(BaseRight):
     pass
 

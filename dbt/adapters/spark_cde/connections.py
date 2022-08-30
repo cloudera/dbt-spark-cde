@@ -9,7 +9,10 @@ from dbt.contracts.connection import ConnectionState, AdapterResponse
 from dbt.events import AdapterLogger
 from dbt.utils import DECIMALS
 from dbt.adapters.spark_cde import __version__
-from dbt.adapters.spark_cde.cdeapisession import CDEApiSessionConnectionWrapper, CDEApiConnectionManager
+from dbt.adapters.spark_cde.cdeapisession import (
+    CDEApiSessionConnectionWrapper,
+    CDEApiConnectionManager,
+)
 from dbt.tracking import DBT_INVOCATION_ENV
 
 try:
@@ -243,9 +246,13 @@ class PyhiveConnectionWrapper(object):
             dbt.exceptions.raise_database_error(poll_state.errorMessage)
 
         elif state not in STATE_SUCCESS:
-            status_type = ThriftState._VALUES_TO_NAMES.get(state, "Unknown<{!r}>".format(state))
+            status_type = ThriftState._VALUES_TO_NAMES.get(
+                state, "Unknown<{!r}>".format(state)
+            )
 
-            dbt.exceptions.raise_database_error("Query failed with status: {}".format(status_type))
+            dbt.exceptions.raise_database_error(
+                "Query failed with status: {}".format(status_type)
+            )
 
         logger.debug("Poll status: {}, query complete".format(state))
 
@@ -349,7 +356,9 @@ class SparkConnectionManager(SQLConnectionManager):
         for i in range(1 + creds.connect_retries):
             try:
                 if creds.method == SparkConnectionMethod.HTTP:
-                    cls.validate_creds(creds, ["token", "host", "port", "cluster", "organization"])
+                    cls.validate_creds(
+                        creds, ["token", "host", "port", "cluster", "organization"]
+                    )
 
                     # Prepend https:// if it is missing
                     host = creds.host
@@ -369,7 +378,9 @@ class SparkConnectionManager(SQLConnectionManager):
 
                     raw_token = "token:{}".format(creds.token).encode()
                     token = base64.standard_b64encode(raw_token).decode()
-                    transport.setCustomHeaders({"Authorization": "Basic {}".format(token)})
+                    transport.setCustomHeaders(
+                        {"Authorization": "Basic {}".format(token)}
+                    )
 
                     conn = hive.connect(thrift_transport=transport)
                     handle = PyhiveConnectionWrapper(conn)
@@ -408,7 +419,13 @@ class SparkConnectionManager(SQLConnectionManager):
                             organization=creds.organization, cluster=creds.cluster
                         )
                     elif creds.endpoint is not None:
-                        required_fields = ["driver", "host", "port", "token", "endpoint"]
+                        required_fields = [
+                            "driver",
+                            "host",
+                            "port",
+                            "token",
+                            "endpoint",
+                        ]
                         http_path = cls.SPARK_SQL_ENDPOINT_HTTP_PATH.format(
                             endpoint=creds.endpoint
                         )
@@ -425,7 +442,10 @@ class SparkConnectionManager(SQLConnectionManager):
                     user_agent_entry = f"dbt-labs-dbt-spark/{dbt_spark_version} (Databricks, {dbt_invocation_env})"  # noqa
 
                     # http://simba.wpengine.com/products/Spark/doc/ODBC_InstallGuide/unix/content/odbc/hi/configuring/serverside.htm
-                    ssp = {f"SSP_{k}": f"{{{v}}}" for k, v in creds.server_side_parameters.items()}
+                    ssp = {
+                        f"SSP_{k}": f"{{{v}}}"
+                        for k, v in creds.server_side_parameters.items()
+                    }
 
                     # https://www.simba.com/products/Spark/doc/v2/ODBC_InstallGuide/unix/content/odbc/options/driver.htm
                     connection_str = _build_odbc_connnection_string(
@@ -454,19 +474,27 @@ class SparkConnectionManager(SQLConnectionManager):
 
                     handle = SessionConnectionWrapper(Connection())
                 elif creds.method == SparkConnectionMethod.CDE:
-                    handle = CDEApiSessionConnectionWrapper(CDEApiConnectionManager().connect(creds.user, creds.password, creds.auth_endpoint, creds.host))
+                    handle = CDEApiSessionConnectionWrapper(
+                        CDEApiConnectionManager().connect(
+                            creds.user, creds.password, creds.auth_endpoint, creds.host
+                        )
+                    )
                     try:
-                        if (creds.usage_tracking):
+                        if creds.usage_tracking:
                             tracking_data = {}
                             payload = {}
                             payload["id"] = "dbt_spark_cde_open"
-                            payload["unique_hash"] = hashlib.md5(creds.host.encode()).hexdigest()
+                            payload["unique_hash"] = hashlib.md5(
+                                creds.host.encode()
+                            ).hexdigest()
                             payload["auth"] = "cde"
                             payload["connection_state"] = connection.state
 
                             tracking_data["data"] = payload
 
-                            the_track_thread = threading.Thread(target=track_usage, kwargs={"data": tracking_data})
+                            the_track_thread = threading.Thread(
+                                target=track_usage, kwargs={"data": tracking_data}
+                            )
                             the_track_thread.start()
                     except:
                         logger.debug("Usage tracking error")
@@ -504,7 +532,9 @@ class SparkConnectionManager(SQLConnectionManager):
                     logger.warning(msg)
                     time.sleep(creds.connect_timeout)
                 else:
-                    raise dbt.exceptions.FailedToConnectException("failed to connect") from e
+                    raise dbt.exceptions.FailedToConnectException(
+                        "failed to connect"
+                    ) from e
         else:
             raise exc
 
@@ -513,7 +543,9 @@ class SparkConnectionManager(SQLConnectionManager):
         return connection
 
 
-def build_ssl_transport(host, port, username, auth, kerberos_service_name, password=None):
+def build_ssl_transport(
+    host, port, username, auth, kerberos_service_name, password=None
+):
     transport = None
     if port is None:
         port = 10000
@@ -561,20 +593,26 @@ def _is_retryable_error(exc: Exception) -> str:
     else:
         return ""
 
+
 # usage tracking code - Cloudera specific
 def track_usage(data):
-   import requests
-   from decouple import config
+    import requests
+    from decouple import config
 
-   SNOWPLOW_ENDPOINT = config('SNOWPLOW_ENDPOINT')
-   SNOWPLOW_TIMEOUT  = int(config('SNOWPLOW_TIMEOUT')) # 10 seconds
+    SNOWPLOW_ENDPOINT = config("SNOWPLOW_ENDPOINT")
+    SNOWPLOW_TIMEOUT = int(config("SNOWPLOW_TIMEOUT"))  # 10 seconds
 
-   # prod creds
-   headers = {'x-api-key': config('SNOWPLOW_API_KEY'), 'x-datacoral-environment': config('SNOWPLOW_ENNV'), 'x-datacoral-passthrough': 'true'}
+    # prod creds
+    headers = {
+        "x-api-key": config("SNOWPLOW_API_KEY"),
+        "x-datacoral-environment": config("SNOWPLOW_ENNV"),
+        "x-datacoral-passthrough": "true",
+    }
 
-   data = json.dumps([data])
+    data = json.dumps([data])
 
-   res = requests.post(SNOWPLOW_ENDPOINT, data = data, headers = headers, timeout = SNOWPLOW_TIMEOUT)
+    res = requests.post(
+        SNOWPLOW_ENDPOINT, data=data, headers=headers, timeout=SNOWPLOW_TIMEOUT
+    )
 
-   return res
-
+    return res
