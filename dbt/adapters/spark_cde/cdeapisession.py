@@ -14,22 +14,22 @@
 
 """CDE API session integration."""
 
-# API based CDE access
-import requests
-import traceback
-import json
-import io
-import time
 import datetime as dt
-import dbt.exceptions
-
-from urllib.parse import urlencode
+import io
+import json
+import time
+import traceback
 from types import TracebackType
 from typing import Any
-from requests_toolbelt.multipart.encoder import MultipartEncoder
+from urllib.parse import urlencode
+
+import dbt.exceptions
+import requests
+# API based CDE access
+from dbt.adapters.spark_cde.adaptertimer import AdapterTimer
 from dbt.events import AdapterLogger
 from dbt.utils import DECIMALS
-from dbt.adapters.spark_cde.adaptertimer import AdapterTimer
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 logger = AdapterLogger("Spark")
 adapter_timer = AdapterTimer()
