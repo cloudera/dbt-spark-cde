@@ -246,13 +246,9 @@ class PyhiveConnectionWrapper(object):
             dbt.exceptions.raise_database_error(poll_state.errorMessage)
 
         elif state not in STATE_SUCCESS:
-            status_type = ThriftState._VALUES_TO_NAMES.get(
-                state, "Unknown<{!r}>".format(state)
-            )
+            status_type = ThriftState._VALUES_TO_NAMES.get(state, "Unknown<{!r}>".format(state))
 
-            dbt.exceptions.raise_database_error(
-                "Query failed with status: {}".format(status_type)
-            )
+            dbt.exceptions.raise_database_error("Query failed with status: {}".format(status_type))
 
         logger.debug("Poll status: {}, query complete".format(state))
 
@@ -356,9 +352,7 @@ class SparkConnectionManager(SQLConnectionManager):
         for i in range(1 + creds.connect_retries):
             try:
                 if creds.method == SparkConnectionMethod.HTTP:
-                    cls.validate_creds(
-                        creds, ["token", "host", "port", "cluster", "organization"]
-                    )
+                    cls.validate_creds(creds, ["token", "host", "port", "cluster", "organization"])
 
                     # Prepend https:// if it is missing
                     host = creds.host
@@ -378,9 +372,7 @@ class SparkConnectionManager(SQLConnectionManager):
 
                     raw_token = "token:{}".format(creds.token).encode()
                     token = base64.standard_b64encode(raw_token).decode()
-                    transport.setCustomHeaders(
-                        {"Authorization": "Basic {}".format(token)}
-                    )
+                    transport.setCustomHeaders({"Authorization": "Basic {}".format(token)})
 
                     conn = hive.connect(thrift_transport=transport)
                     handle = PyhiveConnectionWrapper(conn)
@@ -419,13 +411,7 @@ class SparkConnectionManager(SQLConnectionManager):
                             organization=creds.organization, cluster=creds.cluster
                         )
                     elif creds.endpoint is not None:
-                        required_fields = [
-                            "driver",
-                            "host",
-                            "port",
-                            "token",
-                            "endpoint",
-                        ]
+                        required_fields = ["driver", "host", "port", "token", "endpoint"]
                         http_path = cls.SPARK_SQL_ENDPOINT_HTTP_PATH.format(
                             endpoint=creds.endpoint
                         )
@@ -442,10 +428,7 @@ class SparkConnectionManager(SQLConnectionManager):
                     user_agent_entry = f"dbt-labs-dbt-spark/{dbt_spark_version} (Databricks, {dbt_invocation_env})"  # noqa
 
                     # http://simba.wpengine.com/products/Spark/doc/ODBC_InstallGuide/unix/content/odbc/hi/configuring/serverside.htm
-                    ssp = {
-                        f"SSP_{k}": f"{{{v}}}"
-                        for k, v in creds.server_side_parameters.items()
-                    }
+                    ssp = {f"SSP_{k}": f"{{{v}}}" for k, v in creds.server_side_parameters.items()}
 
                     # https://www.simba.com/products/Spark/doc/v2/ODBC_InstallGuide/unix/content/odbc/options/driver.htm
                     connection_str = _build_odbc_connnection_string(
@@ -532,9 +515,7 @@ class SparkConnectionManager(SQLConnectionManager):
                     logger.warning(msg)
                     time.sleep(creds.connect_timeout)
                 else:
-                    raise dbt.exceptions.FailedToConnectException(
-                        "failed to connect"
-                    ) from e
+                    raise dbt.exceptions.FailedToConnectException("failed to connect") from e
         else:
             raise exc
 
@@ -543,9 +524,7 @@ class SparkConnectionManager(SQLConnectionManager):
         return connection
 
 
-def build_ssl_transport(
-    host, port, username, auth, kerberos_service_name, password=None
-):
+def build_ssl_transport(host, port, username, auth, kerberos_service_name, password=None):
     transport = None
     if port is None:
         port = 10000
@@ -592,7 +571,6 @@ def _is_retryable_error(exc: Exception) -> str:
         return str(exc)
     else:
         return ""
-
 
 # usage tracking code - Cloudera specific
 def track_usage(data):
