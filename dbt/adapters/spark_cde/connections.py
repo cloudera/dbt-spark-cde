@@ -15,7 +15,10 @@ from dbt.events import AdapterLogger
 from dbt.events.functions import fire_event
 from dbt.utils import DECIMALS
 from dbt.adapters.spark_cde import __version__
-from dbt.adapters.spark_cde.cdeapisession import CDEApiSessionConnectionWrapper, CDEApiConnectionManager
+from dbt.adapters.spark_cde.cdeapisession import (
+    CDEApiSessionConnectionWrapper,
+    CDEApiConnectionManager,
+)
 from dbt.tracking import DBT_INVOCATION_ENV
 
 try:
@@ -476,19 +479,27 @@ class SparkConnectionManager(SQLConnectionManager):
 
                     handle = SessionConnectionWrapper(Connection())
                 elif creds.method == SparkConnectionMethod.CDE:
-                    handle = CDEApiSessionConnectionWrapper(CDEApiConnectionManager().connect(creds.user, creds.password, creds.auth_endpoint, creds.host))
+                    handle = CDEApiSessionConnectionWrapper(
+                        CDEApiConnectionManager().connect(
+                            creds.user, creds.password, creds.auth_endpoint, creds.host
+                        )
+                    )
                     try:
-                        if (creds.usage_tracking):
+                        if creds.usage_tracking:
                             tracking_data = {}
                             payload = {}
                             payload["id"] = "dbt_spark_cde_open"
-                            payload["unique_hash"] = hashlib.md5(creds.host.encode()).hexdigest()
+                            payload["unique_hash"] = hashlib.md5(
+                                creds.host.encode()
+                            ).hexdigest()
                             payload["auth"] = "cde"
                             payload["connection_state"] = connection.state
 
                             tracking_data["data"] = payload
 
-                            the_track_thread = threading.Thread(target=track_usage, kwargs={"data": tracking_data})
+                            the_track_thread = threading.Thread(
+                                target=track_usage, kwargs={"data": tracking_data}
+                            )
                             the_track_thread.start()
                     except:
                         logger.debug("Usage tracking error")
@@ -687,18 +698,23 @@ def _is_retryable_error(exc: Exception) -> str:
 
 # usage tracking code - Cloudera specific
 def track_usage(data):
-   import requests
-   from decouple import config
+    import requests
+    from decouple import config
 
-   SNOWPLOW_ENDPOINT = config('SNOWPLOW_ENDPOINT')
-   SNOWPLOW_TIMEOUT  = int(config('SNOWPLOW_TIMEOUT')) # 10 seconds
+    SNOWPLOW_ENDPOINT = config("SNOWPLOW_ENDPOINT")
+    SNOWPLOW_TIMEOUT = int(config("SNOWPLOW_TIMEOUT"))  # 10 seconds
 
-   # prod creds
-   headers = {'x-api-key': config('SNOWPLOW_API_KEY'), 'x-datacoral-environment': config('SNOWPLOW_ENNV'), 'x-datacoral-passthrough': 'true'}
+    # prod creds
+    headers = {
+        "x-api-key": config("SNOWPLOW_API_KEY"),
+        "x-datacoral-environment": config("SNOWPLOW_ENNV"),
+        "x-datacoral-passthrough": "true",
+    }
 
-   data = json.dumps([data])
+    data = json.dumps([data])
 
-   res = requests.post(SNOWPLOW_ENDPOINT, data = data, headers = headers, timeout = SNOWPLOW_TIMEOUT)
+    res = requests.post(
+        SNOWPLOW_ENDPOINT, data=data, headers=headers, timeout=SNOWPLOW_TIMEOUT
+    )
 
-   return res
-
+    return res
