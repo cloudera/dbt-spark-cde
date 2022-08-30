@@ -96,6 +96,8 @@ class CDEApiCursor:
     def execute(self, sql: str, *parameters: Any) -> None:
         time_slept_while_polling_jobstatus = 0
         time_slept_while_polling_jobresults = 0
+        no_of_times_slept_while_polling = 0
+        time_spent_during_api_getJobRunStatus = 0
         
         if len(parameters) > 0:
             sql = sql % parameters
@@ -134,34 +136,38 @@ class CDEApiCursor:
         logger.debug("{} .Job created with id: {}".format(job_name, job_name))
         logger.debug("{} .Job created with sql statement: {}".format(job_name, sql))
         
-        adapter_timer.start_timer("runJob(spark_exec+sleep)")
+        adapter_timer.start_timer("runJob(sleep + api_calls)")
         job = self._cde_connection.runJob(job_name).json()
-        #self._cde_connection.getJobStatus(job_name)
     
         # 3. run the job
-        job_status = self._cde_connection.getJobRunStatus(job).json()        
-        logger.debug("{} .Job status: {}".format(job_name, job_status["status"]))
-        logger.debug("{} .Job run other details: {}".format(job_name, pformat(job_status)))
-
+        job_status,time_spent_api = self._cde_connection.getJobRunStatus(job)  
+        job_status_json = job_status.json()
+        time_spent_during_api_getJobRunStatus += time_spent_api   
+          
+        logger.debug("{} .Job status: {}".format(job_name, job_status_json["status"]))
+        logger.debug("{} .Job run other details: {}".format(job_name, pformat(job_status_json)))
         # 4. wait for the result    
-        while job_status["status"] != CDEApiConnection.JOB_STATUS['succeeded']:
+        while job_status_json["status"] != CDEApiConnection.JOB_STATUS['succeeded']:
             logger.debug("{} .Sleeping for {} seconds while polling jobstatus.".format(job_name, DEFAULT_POLL_WAIT))
             time.sleep(DEFAULT_POLL_WAIT)
             time_slept_while_polling_jobstatus += DEFAULT_POLL_WAIT
-            job_status = self._cde_connection.getJobRunStatus(job).json()
-            logger.debug("{} .Job status: {}".format(job_name, job_status["status"]))
+            no_of_times_slept_while_polling += 1
+            job_status, time_spent_api = self._cde_connection.getJobRunStatus(job)
+            job_status_json = job_status.json()
+            time_spent_during_api_getJobRunStatus += time_spent_api     
+            
+            logger.debug("{} .Job status: {}".format(job_name, job_status_json["status"]))
             
             # throw exception and print to console for failed job.
-            if (job_status["status"] == CDEApiConnection.JOB_STATUS['failed']):
-                #print("Job Failed", sql, job_status)
-                logger.error("{} .Job status: {}".format(job_name, job_status["status"]))
+            if (job_status_json["status"] == CDEApiConnection.JOB_STATUS['failed']):
+                #print("Job Failed", sql, job_status_json)
+                logger.error("{} .Job status: {}".format(job_name, job_status_json["status"]))
                 schema, rows, job_output, time_slept_while_polling_jobresults  = self._cde_connection.getJobOutput(job_name, job)
                 logger.error("{} .Log result stdout.Sql run failed with error: {}".format(job_name, job_output.text))
                 raise dbt.exceptions.raise_database_error(
-                        'Error while executing query: ' + repr(job_status)
+                        'Error while executing query: ' + repr(job_status_json)
                 )
-
-        adapter_timer.end_timer("runJob(spark_exec+sleep)")  
+        adapter_timer.end_timer("runJob(sleep + api_calls)")  
 
 
         # 5. fetch and populate the results 
@@ -188,17 +194,17 @@ class CDEApiCursor:
         
         #Profile each individual method being invocated in the session
         adapter_timer.log_summary(job_name)
-        logger.debug("{job_name:<40}{time_slept_while_polling_jobstatus:10.2f}".format(job_name= job_name + "\t   " + 
-                                                                             "total time slept while checking job status runJob(starting->running->succeded/failed) : ", 
-                                                                             time_slept_while_polling_jobstatus = time_slept_while_polling_jobstatus))
-        logger.debug("{job_name:<40}{time_slept_while_polling_jobresults:10.2f}".format(job_name= job_name + "\t   " + 
-                                                                             "total time slept while fetching job output from logs(getJobResults): ", 
-                                                                             time_slept_while_polling_jobresults = time_slept_while_polling_jobresults))
+        logger.debug("{:<40}Time spent performing api calls inside runJob for getJobRunStatus {:10.2f}".format(job_name,time_spent_during_api_getJobRunStatus))
+        logger.debug("{:<40}No. of times slept while polling jobstatus {:10.2f}".format(job_name,no_of_times_slept_while_polling))
+        logger.debug("{:<40}Total time slept while checking job status runJob(starting->running->succeded/failed) {:10.2f}"
+                     .format(job_name,time_slept_while_polling_jobstatus))
+        logger.debug("{:<40}Total time slept while fetching job output from logs(getJobResults) {:10.2f}"
+                     .format(job_name ,time_slept_while_polling_jobresults))
         
         events, job_output, time_slept   = self._cde_connection.getJobOutput(job_name,job,log_type = 'event')
         logger.debug("Fetching spark events logs for {}".format(job_name))
         for r in events:
-            logger.debug("{job_name:<40}{event:<40}{Timestamp:<40}".format(job_name=job_name, event=r['Event'], Timestamp=r['Timestamp']))
+            logger.debug("{:<40}{:<40}{:<40}".format(job_name, r['Event'], dt.datetime.utcfromtimestamp(r['Timestamp']/1000).time().strftime('%H:%M:%S.%f')))
         
         logger.debug("{:<40}Spark event execution time in secs{:10.2f}".format(job_name, (events[-1]['Timestamp']-events[0]['Timestamp'])/1000))
             
@@ -321,12 +327,14 @@ class CDEApiConnection:
         return res
 
     def getJobRunStatus(self, job):
+        get_jobrun_status_api_start = time.time()
         res = requests.get(self.base_api_url + "job-runs" + "/" + repr(job["id"]), headers=self.api_header)
+        get_jobrun_status_api_duration = time.time() - get_jobrun_status_api_start
 
         # print("getJobRunStatus - res", res)
         # print("getJobRunStatus - res.text", res.text)
 
-        return res
+        return res, get_jobrun_status_api_duration
 
     def getJobLogTypes(self, job):
         res = requests.get(self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/log-types", headers=self.api_header)

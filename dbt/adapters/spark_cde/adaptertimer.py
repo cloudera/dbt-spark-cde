@@ -1,4 +1,6 @@
 import time
+import datetime
+
 from dbt.events import AdapterLogger
 logger = AdapterLogger("Spark")
 
@@ -44,4 +46,6 @@ class AdapterTimer:
     def log_summary(self, job_name):
         logger.debug("\n")
         for timer in self._timers:
-            logger.debug("{job_name:<40}{name:<40}{elapsed:20.2f}".format(job_name= job_name+ "\t", name=timer["name"], elapsed=timer["elapsed_time"]))
+            start_time_utc = datetime.datetime.utcfromtimestamp(timer["start_time"]).time().strftime('%H:%M:%S.%f')
+            end_time_utc = datetime.datetime.utcfromtimestamp(timer["end_time"]).time().strftime('%H:%M:%S.%f')
+            logger.debug("{:<40}{:<40}{:20}{:20}{:10.2f}".format(job_name+ "\t", timer["name"],start_time_utc , end_time_utc, timer["elapsed_time"]))
