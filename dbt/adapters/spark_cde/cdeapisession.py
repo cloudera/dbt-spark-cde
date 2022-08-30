@@ -21,14 +21,14 @@ import json
 import requests
 import time
 import traceback
-from types import TracebackType
-from typing import Any
-from urllib.parse import urlencode
 
 from dbt.adapters.spark_cde.adaptertimer import AdapterTimer
 from dbt.events import AdapterLogger
 from dbt.utils import DECIMALS
 from requests_toolbelt.multipart.encoder import MultipartEncoder
+from types import TracebackType
+from typing import Any
+from urllib.parse import urlencode
 
 logger = AdapterLogger("Spark")
 adapter_timer = AdapterTimer()
