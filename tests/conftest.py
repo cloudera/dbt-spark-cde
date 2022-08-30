@@ -5,9 +5,7 @@ pytest_plugins = ["dbt.tests.fixtures.project"]
 
 
 def pytest_addoption(parser):
-    parser.addoption(
-        "--profile", action="store", default="cloudera_spark_cde", type=str
-    )
+    parser.addoption("--profile", action="store", default="cloudera_spark_cde", type=str)
 
 
 # Using @pytest.mark.skip_profile('apache_spark') uses the 'skip_by_profile_type'
@@ -85,16 +83,16 @@ def databricks_sql_endpoint_target():
 def databricks_http_cluster_target():
     return {
         "type": "spark",
-        "host": os.getenv("DBT_DATABRICKS_HOST_NAME"),
-        "cluster": os.getenv("DBT_DATABRICKS_CLUSTER_NAME"),
-        "token": os.getenv("DBT_DATABRICKS_TOKEN"),
+        "host": os.getenv('DBT_DATABRICKS_HOST_NAME'),
+        "cluster": os.getenv('DBT_DATABRICKS_CLUSTER_NAME'),
+        "token": os.getenv('DBT_DATABRICKS_TOKEN'),
         "method": "http",
         "port": 443,
         # more retries + longer timout to handle unavailability while cluster is restarting
         # return failures quickly in dev, retry all failures in CI (up to 5 min)
         "connect_retries": 5,
-        "connect_timeout": 60,
-        "retry_all": bool(os.getenv("DBT_DATABRICKS_RETRY_ALL", False)),
+        "connect_timeout": 60, 
+        "retry_all": bool(os.getenv('DBT_DATABRICKS_RETRY_ALL', False)),
     }
 
 
@@ -105,7 +103,6 @@ def spark_session_target():
         "method": "session",
     }
 
-
 def cloudera_spark_cde():
     return {
         "type": "spark_cde",
@@ -113,9 +110,8 @@ def cloudera_spark_cde():
         "host": os.getenv("DBT_CLOUDERA_HOST_NAME"),
         "auth_endpoint": os.getenv("DBT_CLOUDERA_AUTH_ENDPOINT"),
         "username": os.getenv("DBT_CLOUDERA_USERNAME"),
-        "password": os.getenv("DBT_CLOUDERA_PASSWORD"),
+        "password": os.getenv("DBT_CLOUDERA_PASSWORD")
     }
-
 
 @pytest.fixture(autouse=True)
 def skip_by_profile_type(request):
