@@ -14,10 +14,12 @@
 
 """CDE API session integration."""
 
+# fmt: off
 import datetime as dt
 import dbt.exceptions
 import io
 import json
+import random
 import requests
 import time
 import traceback
@@ -26,10 +28,9 @@ from dbt.adapters.spark_cde.adaptertimer import AdapterTimer
 from dbt.events import AdapterLogger
 from dbt.utils import DECIMALS
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-from types import TracebackType
 from typing import Any
-from urllib.parse import urlencode
 
+# fmt: on
 logger = AdapterLogger("Spark")
 adapter_timer = AdapterTimer()
 
@@ -37,13 +38,15 @@ DEFAULT_POLL_WAIT = 2  # seconds
 DEFAULT_LOG_WAIT = 10  # seconds
 DEFAULT_RETRIES = 10  # max number of retries for fetching log
 MIN_LINES_TO_PARSE = (
-    3  # minimum lines in the logs file before we can start to parse the sql output
+    4  # minimum lines in the logs file before we can start to parse the sql output
 )
 NUMBERS = DECIMALS + (int, float)
 
 
 class CDEApiCursor:
     def __init__(self) -> None:
+        self._schema = None
+        self._rows = None
         self._cde_connection = None
         self._cde_api_helper = None
 
@@ -73,7 +76,7 @@ class CDEApiCursor:
             description = [
                 (
                     field["name"],
-                    field["type"],  # field['dataType'],
+                    field["type"],
                     None,
                     None,
                     None,
@@ -87,11 +90,14 @@ class CDEApiCursor:
     def close(self) -> None:
         self._rows = None
 
-        # TODO: kill the running job?
+    # TODO: kill the running job?
 
-    def _generateJobName(self):
+    @staticmethod
+    def generate_job_name():
         time_ms = round(time.time() * 1000)
-        job_name = "cde_api_session_job" + "-" + repr(time_ms)
+        job_name = (
+            "dbt-job-" + repr(time_ms) + "-" + str(random.randint(0, 1000)).zfill(8)
+        )
         return job_name
 
     def execute(self, sql: str, *parameters: Any) -> None:
@@ -101,76 +107,125 @@ class CDEApiCursor:
         # TODO: handle parameterised sql
 
         # 0. generate a job name
-        adapter_timer.start_timer("generateJobName")
-        job_name = self._generateJobName()
-        adapter_timer.end_timer("generateJobName")
+        job_name = self.generate_job_name()
+        logger.debug(
+            "{}: Job created with id: {} for SQL statement:\n{}".format(
+                job_name, job_name, sql
+            )
+        )
 
         # 1. create resource
-        adapter_timer.start_timer("generateResource")
-        generateResourceStartTime = time.time()
-        self._cde_connection.deleteResource(job_name)
-        self._cde_connection.createResource(job_name, "files")
-        adapter_timer.end_timer("generateResource")
+        logger.debug("{}: Create resources: files".format(job_name))
+        self._cde_connection.create_resource(job_name, "files")
+        logger.debug("{}: Done create resource: files".format(job_name))
 
-        sql_resource = self._cde_api_helper.generateSQLResource(job_name, sql)
-        py_resource = self._cde_api_helper.getPythonWrapperResource(sql_resource)
+        # 2. upload the resources
+        sql_resource = self._cde_api_helper.generate_sql_resource(job_name, sql)
+        py_resource = self._cde_api_helper.get_python_wrapper_resource(sql_resource)
+        logger.debug(
+            "{}: Upload resource: SQL resource: {}".format(
+                job_name, sql_resource["file_name"]
+            )
+        )
+        self._cde_connection.upload_resource(job_name, sql_resource)
+        logger.debug(
+            "{}: Done upload resources: SQL resource: {}".format(
+                job_name, sql_resource["file_name"]
+            )
+        )
+        logger.debug(
+            "{}: Upload resource: py resource: {}".format(
+                job_name, py_resource["file_name"]
+            )
+        )
+        self._cde_connection.upload_resource(job_name, py_resource)
+        logger.debug(
+            "{}: Done upload resource: py resource: {}".format(
+                job_name, py_resource["file_name"]
+            )
+        )
 
-        # 2. upload the resource
-        adapter_timer.start_timer("uploadResource")
-        self._cde_connection.uploadResource(job_name, sql_resource)
-        self._cde_connection.uploadResource(job_name, py_resource)
-        adapter_timer.end_timer("uploadResource")
+        # 3. submit the job
+        logger.debug("{}: Submit job".format(job_name))
+        self._cde_connection.submit_job(job_name, job_name, sql_resource, py_resource)
+        logger.debug("{}: Done submit job".format(job_name))
 
-        # 2. submit the job
-        adapter_timer.start_timer("deleteJob")
-        self._cde_connection.deleteJob(job_name)
-        adapter_timer.end_timer("deleteJob")
+        # 4. run the job
+        logger.debug("{}: Run job".format(job_name))
+        job = self._cde_connection.run_job(job_name).json()
+        logger.debug("{}: Done run job".format(job_name))
 
-        adapter_timer.start_timer("submitJob")
-        self._cde_connection.submitJob(job_name, job_name, sql_resource, py_resource)
-        adapter_timer.end_timer("submitJob")
+        # 5. wait for the result
+        logger.debug("{}: Get job status".format(job_name))
+        job_status = self._cde_connection.get_job_run_status(job).json()
+        logger.debug(
+            "{}: Current Job status: {}".format(job_name, job_status["status"])
+        )
+        logger.debug("{}: Done get job status".format(job_name))
 
-        adapter_timer.start_timer("runJob")
-        job = self._cde_connection.runJob(job_name).json()
-        self._cde_connection.getJobStatus(job_name)
-
-        # 3. run the job
-        job_status = self._cde_connection.getJobRunStatus(job).json()
-        # 4. wait for the result
         while job_status["status"] != CDEApiConnection.JOB_STATUS["succeeded"]:
+            logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_POLL_WAIT))
             time.sleep(DEFAULT_POLL_WAIT)
-            job_status = self._cde_connection.getJobRunStatus(job).json()
+            logger.debug(
+                "{}: Done sleep for {} seconds".format(job_name, DEFAULT_POLL_WAIT)
+            )
+
+            logger.debug("{}: Get job status".format(job_name))
+            job_status = self._cde_connection.get_job_run_status(job).json()
+            logger.debug(
+                "{}: Current Job status: {}".format(job_name, job_status["status"])
+            )
+            logger.debug("{}: Done get job status".format(job_name))
+
             # throw exception and print to console for failed job.
             if job_status["status"] == CDEApiConnection.JOB_STATUS["failed"]:
-                print("Job Failed", sql, job_status)
-                self._cde_connection.getJobOutput(job)
+                logger.debug("{}: Get job output".format(job_name))
+                schema, rows, job_output = self._cde_connection.get_job_output(
+                    job_name, job
+                )
+                logger.debug("{}: Done get job output".format(job_name))
+                logger.error(
+                    "{}: Failed job details: {}".format(job_name, job_output.text)
+                )
                 raise dbt.exceptions.raise_database_error(
                     "Error while executing query: " + repr(job_status)
                 )
 
-        logger.debug("Job created with id: {}".format(job_name))
-        logger.debug("Job created with sql statement: {}".format(sql))
-        logger.debug("Job status: {}".format(job_status["status"]))
-        logger.debug("Job run other details: {}".format(job_status))
-        adapter_timer.end_timer("runJob")
+        # 6. fetch and populate the results
+        logger.debug("{}: Get job output".format(job_name))
+        schema, rows, job_output = self._cde_connection.get_job_output(job_name, job)
+        logger.debug("{}: Done get job output".format(job_name))
+        logger.debug("{}: Job output details: {}".format(job_name, job_output.text))
+        self._rows = rows
+        self._schema = schema
 
-        # 5. fetch and populate the results
-        time.sleep(DEFAULT_LOG_WAIT)
-        adapter_timer.start_timer("getJobResults")
-        schema, rows = self._cde_connection.getJobOutput(job)
-        adapter_timer.end_timer("getJobResults")
+        # 7. Get spark job events
+        logger.debug("{}: Get spark job events".format(job_name))
+        events, job_output = self._cde_connection.get_job_output(
+            job_name, job, log_type="event"
+        )
+        logger.debug("{}: Done get spark job events".format(job_name))
+        for r in events:
+            logger.debug(
+                "{}:{:<40}{:<40}".format(
+                    job_name,
+                    r["Event"],
+                    dt.datetime.utcfromtimestamp(r["Timestamp"] / 1000)
+                    .time()
+                    .strftime("%H:%M:%S.%f"),
+                )
+            )
 
         self._rows = rows
         self._schema = schema
 
-        # 6. cleanup resources
-        adapter_timer.start_timer("deleteResource")
-        self._cde_connection.deleteResource(job_name)
-        self._cde_connection.deleteJob(job_name)
-        adapter_timer.end_timer("deleteResource")
-
-        # Profile each individual method being invocated in the session
-        adapter_timer.log_summary()
+        # 8. cleanup resources
+        logger.debug("{}: Delete job".format(job_name))
+        self._cde_connection.delete_job(job_name)
+        logger.debug("{}: Done delete job".format(job_name))
+        logger.debug("{}: Delete resource".format(job_name))
+        self._cde_connection.delete_resource(job_name)
+        logger.debug("{}: Done delete resource".format(job_name))
 
     def fetchall(self):
         return self._rows
@@ -183,17 +238,20 @@ class CDEApiCursor:
 
         return row
 
+
 class CDEApiHelper:
     def __init__(self) -> None:
         pass
 
-    def generateSQLResource(self, job_name, sql):
+    @staticmethod
+    def generate_sql_resource(job_name, sql):
         time_ms = round(time.time() * 1000)
         file_name = job_name + "-" + repr(time_ms) + ".sql"
         file_obj = io.StringIO(sql)
         return {"file_name": file_name, "file_obj": file_obj, "job_name": job_name}
 
-    def getPythonWrapperResource(self, sql_resource):
+    @staticmethod
+    def get_python_wrapper_resource(sql_resource):
         time_ms = round(time.time() * 1000)
         file_name = sql_resource["job_name"] + "-" + repr(time_ms) + ".py"
 
@@ -209,7 +267,6 @@ class CDEApiHelper:
         )
 
         file_obj = io.StringIO(py_file)
-
         return {
             "file_name": file_name,
             "file_obj": file_obj,
@@ -218,7 +275,6 @@ class CDEApiHelper:
 
 
 class CDEApiConnection:
-
     JOB_STATUS = {
         "starting": "starting",
         "running": "running",
@@ -231,33 +287,7 @@ class CDEApiConnection:
         self.access_token = access_token
         self.api_header = api_header
 
-    def getJobRunList(self):
-        params = {
-            "latestjob": False,
-            "limit": 20,
-            "offset": 0,
-            "orderby": "ID",
-            "orderasc": True,
-        }
-        res = requests.get(
-            self.base_api_url + "job-runs", params=params, headers=self.api_header
-        )
-        return res
-
-    def getResources(self):
-        params = {
-            "includeFiles": False,
-            "limit": 20,
-            "offset": 0,
-            "orderby": "name",
-            "orderasc": True,
-        }
-        res = requests.get(
-            self.base_api_url + "resources", params=params, headers=self.api_header
-        )
-        return res
-
-    def createResource(self, resource_name, resource_type):
+    def create_resource(self, resource_name, resource_type):
         params = {"hidden": False, "name": resource_name, "type": resource_type}
         res = requests.post(
             self.base_api_url + "resources",
@@ -266,14 +296,14 @@ class CDEApiConnection:
         )
         return res
 
-    def deleteResource(self, resource_name):
+    def delete_resource(self, resource_name):
         res = requests.delete(
             self.base_api_url + "resources" + "/" + resource_name,
             headers=self.api_header,
         )
         return res
 
-    def uploadResource(self, resource_name, file_resource):
+    def upload_resource(self, resource_name, file_resource):
         file_put_url = (
             self.base_api_url
             + "resources"
@@ -301,20 +331,16 @@ class CDEApiConnection:
         res = requests.put(file_put_url, data=encoded_file_data, headers=header)
         return res
 
-    def submitJob(self, job_name, resource_name, sql_resource, py_resource):
-        params = {}
-
-        params["name"] = job_name
-
-        params["mounts"] = [{"dirPrefix": "/", "resourceName": resource_name}]
-
-        params["type"] = "spark"
-
-        params["spark"] = {}
+    def submit_job(self, job_name, resource_name, sql_resource, py_resource):
+        params = {
+            "name": job_name,
+            "mounts": [{"dirPrefix": "/", "resourceName": resource_name}],
+            "type": "spark",
+            "spark": {},
+        }
 
         params["spark"]["file"] = py_resource["file_name"]
         params["spark"]["files"] = [sql_resource["file_name"]]
-
         params["spark"]["conf"] = {"spark.pyspark.python": "python3"}
 
         res = requests.post(
@@ -323,14 +349,14 @@ class CDEApiConnection:
 
         return res
 
-    def getJobStatus(self, job_name):
+    def get_job_status(self, job_name):
         res = requests.get(
             self.base_api_url + "jobs" + "/" + job_name, headers=self.api_header
         )
 
         return res
 
-    def getJobRunStatus(self, job):
+    def get_job_run_status(self, job):
         res = requests.get(
             self.base_api_url + "job-runs" + "/" + repr(job["id"]),
             headers=self.api_header,
@@ -338,7 +364,7 @@ class CDEApiConnection:
 
         return res
 
-    def getJobLogTypes(self, job):
+    def get_job_log_types(self, job):
         res = requests.get(
             self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/log-types",
             headers=self.api_header,
@@ -346,43 +372,10 @@ class CDEApiConnection:
 
         return res
 
-    def getJobOutput(self, job):
-        res_lines = []
+    def parse_query_result(self, res_lines):
+        logger.debug("Inside parse_query_result.")
         schema = []
         rows = []
-
-        no_of_retries = 0
-
-        while (
-            len(res_lines) <= MIN_LINES_TO_PARSE
-        ):  # ensure that enough lines are present to start parsing
-            req_url = (
-                self.base_api_url
-                + "job-runs"
-                + "/"
-                + repr(job["id"])
-                + "/logs?type=driver%2Fstdout&follow=true"
-            )
-            res = requests.get(req_url, headers=self.api_header)
-
-            schema = []
-            rows = []
-
-            # parse the o/p for data
-            res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
-
-            n_lines = len(res_lines)
-            if n_lines > MIN_LINES_TO_PARSE:
-                break  # we have some o/p to process, break out - what happens for CREATE stm?
-
-            no_of_retries += 1
-
-            if no_of_retries > DEFAULT_RETRIES:
-                break
-
-            time.sleep(DEFAULT_LOG_WAIT)
-
-        logger.debug("Log result stdout: {}".format(res.text.split("\n")))
 
         line_number = 0
         for line in res_lines:
@@ -423,16 +416,72 @@ class CDEApiConnection:
         # extract datatypes based on data in first row (string, number or boolean)
         if len(rows) > 0:
             try:
-                schema, rows = self.extractDatatypes(schema, rows)
+                schema, rows = self.extract_datatypes(schema, rows)
             except Exception:
-                print(traceback.format_exc())
+                logger.error(traceback.format_exc())
 
         return schema, rows
 
+    @staticmethod
+    def parse_event_result(res_lines):
+        events = []
+
+        for event_line in res_lines:
+            if len(event_line.strip()):
+                json_rec = json.loads(event_line)
+                if "Timestamp" in json_rec:
+                    events.append(json_rec)
+
+        return events
+
+    def get_job_output(
+        self, job_name, job, log_type="stdout"
+    ):  # log_type can be "stdout", "stderr", "event"
+        res_lines = []
+        no_of_retries = 0
+
+        while (
+            len(res_lines) <= MIN_LINES_TO_PARSE
+        ):  # ensure that enough lines are present to start parsing
+            req_url = (
+                self.base_api_url
+                + "job-runs"
+                + "/"
+                + repr(job["id"])
+                + "/logs?type=driver%2F"
+                + log_type
+                + "&follow=true"
+            )
+            res = requests.get(req_url, headers=self.api_header)
+
+            # parse the o/p for data
+            res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
+            if len(res_lines) < MIN_LINES_TO_PARSE:
+                logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+                time.sleep(DEFAULT_LOG_WAIT)
+                logger.debug(
+                    "{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT)
+                )
+                no_of_retries += 1
+                # break  # we have some o/p to process, break - what happens for CREATE stm?
+
+            if no_of_retries > DEFAULT_RETRIES:
+                logger.error("Couldn't fetch log output in {} retries.".format(DEFAULT_RETRIES))
+                break
+
+        if log_type == "stdout":
+            schema, rows = self.parse_query_result(res_lines)
+            return schema, rows, res
+        elif log_type == "event":
+            return self.parse_event_result(res_lines), res
+        else:
+            return res_lines, res
+
     # since CDE API output of job-runs/{id}/logs doesn't return schema type, but only the SQL output,
     # we need to infer the datatype of each column and update it in schema record. currently only number
-    # and bolean type information is inferred and the rest is defaulted to string.
-    def extractDatatypes(self, schema, rows):
+    # and boolean type information is inferred and the rest is defaulted to string.
+    @staticmethod
+    def extract_datatypes(schema, rows):
         first_row = rows[0]
 
         # if we do not have full schema info, do not attempt to extract datatypes
@@ -458,13 +507,13 @@ class CDEApiConnection:
         }
 
         # convert a row entry based on column type mapping
-        def convertType(row, col_types):
+        def convert_type(row, col_types):
             for idx in range(len(row)):
                 col = row[idx]
                 col_type = col_types[idx]
                 row[idx] = convert_map[col_type](col)
 
-        # extact type info based on column data
+        # extract type info based on column data
         def get_type(col_data):
             if is_number(col_data):
                 return "number"
@@ -477,7 +526,7 @@ class CDEApiConnection:
 
         # for each row apply the type conversion
         for row in rows:
-            convertType(row, col_types)
+            convert_type(row, col_types)
 
         # record the type info into schema dict
         n_cols = len(col_types)
@@ -486,14 +535,14 @@ class CDEApiConnection:
 
         return schema, rows
 
-    def deleteJob(self, job_name):
+    def delete_job(self, job_name):
         res = requests.delete(
             self.base_api_url + "jobs" + "/" + job_name, headers=self.api_header
         )
 
         return res
 
-    def runJob(self, job_name):
+    def run_job(self, job_name):
         spec = {}
 
         res = requests.post(
@@ -517,14 +566,14 @@ class CDEApiConnectionManager:
         self.access_token = ""
         self.api_headers = {}
 
-    def getBaseAuthURL(self):
+    def get_base_auth_url(self):
         return self.base_auth_url
 
-    def getBaseAPIURL(self):
+    def get_base_api_url(self):
         return self.base_api_url
 
-    def getAuthEndpoint(self):
-        return self.getBaseAuthURL() + "gateway/authtkn/knoxtoken/api/v1/token"
+    def get_auth_end_point(self):
+        return self.get_base_auth_url() + "gateway/authtkn/knoxtoken/api/v1/token"
 
     def connect(self, user_name, password, base_auth_url, base_api_url):
         self.base_auth_url = base_auth_url
@@ -532,7 +581,7 @@ class CDEApiConnectionManager:
         self.user_name = user_name
         self.password = password
 
-        auth_endpoint = self.getAuthEndpoint()
+        auth_endpoint = self.get_auth_end_point()
         auth = requests.auth.HTTPBasicAuth(self.user_name, self.password)
 
         res = requests.get(auth_endpoint, auth=auth)
@@ -561,14 +610,16 @@ class CDEApiSessionConnectionWrapper(object):
         self._cursor = self.handle.cursor()
         return self
 
-    def cancel(self):
+    @staticmethod
+    def cancel():
         logger.debug("NotImplemented: cancel")
 
     def close(self):
         if self._cursor:
             self._cursor.close()
 
-    def rollback(self, *args, **kwargs):
+    @staticmethod
+    def rollback(*args, **kwargs):
         logger.debug("NotImplemented: rollback")
 
     def fetchall(self):
