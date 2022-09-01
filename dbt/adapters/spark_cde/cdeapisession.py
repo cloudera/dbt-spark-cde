@@ -89,7 +89,7 @@ class CDEApiCursor:
 
         # TODO: kill the running job?
 
-    def _generate_job_name(self):
+    def generate_job_name(self):
         time_ms = round(time.time() * 1000)
         job_name = "cde_api_session_job" + "-" + repr(time_ms)
         return job_name
@@ -102,7 +102,7 @@ class CDEApiCursor:
 
         # 0. generate a job name
         adapter_timer.start_timer("generateJobName")
-        job_name = self._generate_job_name()
+        job_name = self.generate_job_name()
         adapter_timer.end_timer("generateJobName")
 
         # 1. create resource
