@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """CDE API session integration."""
-
+# fmt: off
 import datetime as dt
 import dbt.exceptions
 import io
@@ -22,16 +22,13 @@ import requests
 import time
 import traceback
 
-from dbt.adapters.spark_cde.adaptertimer import AdapterTimer
 from dbt.events import AdapterLogger
 from dbt.utils import DECIMALS
 from requests_toolbelt.multipart.encoder import MultipartEncoder
-from types import TracebackType
 from typing import Any
-from urllib.parse import urlencode
+# fmt: on
 
 logger = AdapterLogger("Spark")
-adapter_timer = AdapterTimer()
 
 DEFAULT_POLL_WAIT = 2  # seconds
 DEFAULT_LOG_WAIT = 10  # seconds
@@ -44,6 +41,8 @@ NUMBERS = DECIMALS + (int, float)
 
 class CDEApiCursor:
     def __init__(self) -> None:
+        self._schema = None
+        self._rows = None
         self._cde_connection = None
         self._cde_api_helper = None
 
@@ -73,7 +72,7 @@ class CDEApiCursor:
             description = [
                 (
                     field["name"],
-                    field["type"],  # field['dataType'],
+                    field["type"],
                     None,
                     None,
                     None,
@@ -87,7 +86,7 @@ class CDEApiCursor:
     def close(self) -> None:
         self._rows = None
 
-        # TODO: kill the running job?
+    # TODO: kill the running job?
 
     def generate_job_name(self):
         time_ms = round(time.time() * 1000)
@@ -101,35 +100,24 @@ class CDEApiCursor:
         # TODO: handle parameterised sql
 
         # 0. generate a job name
-        adapter_timer.start_timer("generateJobName")
         job_name = self.generate_job_name()
-        adapter_timer.end_timer("generateJobName")
 
         # 1. create resource
-        adapter_timer.start_timer("generateResource")
         self._cde_connection.delete_resource(job_name)
         self._cde_connection.create_resource(job_name, "files")
-        adapter_timer.end_timer("generateResource")
 
         sql_resource = self._cde_api_helper.generate_sql_resource(job_name, sql)
         py_resource = self._cde_api_helper.get_python_wrapper_resource(sql_resource)
 
         # 2. upload the resource
-        adapter_timer.start_timer("upload_resource")
         self._cde_connection.upload_resource(job_name, sql_resource)
         self._cde_connection.upload_resource(job_name, py_resource)
-        adapter_timer.end_timer("upload_resource")
 
         # 2. submit the job
-        adapter_timer.start_timer("delete_job")
         self._cde_connection.delete_job(job_name)
-        adapter_timer.end_timer("delete_job")
 
-        adapter_timer.start_timer("submit_job")
         self._cde_connection.submit_job(job_name, job_name, sql_resource, py_resource)
-        adapter_timer.end_timer("submit_job")
 
-        adapter_timer.start_timer("run_job")
         job = self._cde_connection.run_job(job_name).json()
         self._cde_connection.get_job_status(job_name)
 
@@ -151,25 +139,19 @@ class CDEApiCursor:
         logger.debug("Job created with sql statement: {}".format(sql))
         logger.debug("Job status: {}".format(job_status["status"]))
         logger.debug("Job run other details: {}".format(job_status))
-        adapter_timer.end_timer("run_job")
 
         # 5. fetch and populate the results
         time.sleep(DEFAULT_LOG_WAIT)
-        adapter_timer.start_timer("getJobResults")
         schema, rows = self._cde_connection.get_job_output(job)
-        adapter_timer.end_timer("getJobResults")
 
         self._rows = rows
         self._schema = schema
 
         # 6. cleanup resources
-        adapter_timer.start_timer("delete_resource")
         self._cde_connection.delete_resource(job_name)
         self._cde_connection.delete_job(job_name)
-        adapter_timer.end_timer("delete_resource")
 
-        # Profile each individual method being invocated in the session
-        adapter_timer.log_summary()
+        # Profile each individual method being invoked in the session
 
     def fetchall(self):
         return self._rows
@@ -230,32 +212,6 @@ class CDEApiConnection:
         self.access_token = access_token
         self.api_header = api_header
 
-    def get_job_run_list(self):
-        params = {
-            "latestjob": False,
-            "limit": 20,
-            "offset": 0,
-            "orderby": "ID",
-            "orderasc": True,
-        }
-        res = requests.get(
-            self.base_api_url + "job-runs", params=params, headers=self.api_header
-        )
-        return res
-
-    def get_resources(self):
-        params = {
-            "includeFiles": False,
-            "limit": 20,
-            "offset": 0,
-            "orderby": "name",
-            "orderasc": True,
-        }
-        res = requests.get(
-            self.base_api_url + "resources", params=params, headers=self.api_header
-        )
-        return res
-
     def create_resource(self, resource_name, resource_type):
         params = {"hidden": False, "name": resource_name, "type": resource_type}
         res = requests.post(
@@ -301,19 +257,15 @@ class CDEApiConnection:
         return res
 
     def submit_job(self, job_name, resource_name, sql_resource, py_resource):
-        params = {}
-
-        params["name"] = job_name
-
-        params["mounts"] = [{"dirPrefix": "/", "resourceName": resource_name}]
-
-        params["type"] = "spark"
-
-        params["spark"] = {}
+        params = {
+            "name": job_name,
+            "mounts": [{"dirPrefix": "/", "resourceName": resource_name}],
+            "type": "spark",
+            "spark": {},
+        }
 
         params["spark"]["file"] = py_resource["file_name"]
         params["spark"]["files"] = [sql_resource["file_name"]]
-
         params["spark"]["conf"] = {"spark.pyspark.python": "python3"}
 
         res = requests.post(
@@ -430,7 +382,7 @@ class CDEApiConnection:
 
     # since CDE API output of job-runs/{id}/logs doesn't return schema type, but only the SQL output,
     # we need to infer the datatype of each column and update it in schema record. currently only number
-    # and bolean type information is inferred and the rest is defaulted to string.
+    # and boolean type information is inferred and the rest is defaulted to string.
     def extract_datatypes(self, schema, rows):
         first_row = rows[0]
 
@@ -463,7 +415,7 @@ class CDEApiConnection:
                 col_type = col_types[idx]
                 row[idx] = convert_map[col_type](col)
 
-        # extact type info based on column data
+        # extract type info based on column data
         def get_type(col_data):
             if is_number(col_data):
                 return "number"
@@ -519,7 +471,7 @@ class CDEApiConnectionManager:
     def get_base_auth_url(self):
         return self.base_auth_url
 
-    def get_base_apiurl(self):
+    def get_base_api_url(self):
         return self.base_api_url
 
     def get_auth_endpoint(self):
