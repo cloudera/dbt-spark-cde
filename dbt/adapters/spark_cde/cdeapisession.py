@@ -34,8 +34,8 @@ from typing import Any
 logger = AdapterLogger("Spark")
 adapter_timer = AdapterTimer()
 
-DEFAULT_POLL_WAIT = 5  # time to sleep in seconds before re-fetching job status
-DEFAULT_LOG_WAIT = 20  # time to sleep in seconds for logs to be populated
+DEFAULT_POLL_WAIT = 30  # time to sleep in seconds before re-fetching job status
+DEFAULT_LOG_WAIT = 15  # time to sleep in seconds for logs to be populated
 DEFAULT_CDE_JOB_TIMEOUT = (
     900  # max amount of time(in secs) to keep retrying for fetching job status
 )
@@ -181,12 +181,12 @@ class CDEApiCursor:
             # throw exception and print to console for failed job.
             if job_status["status"] == CDEApiConnection.JOB_STATUS["failed"]:
                 logger.debug("{}: Get job output".format(job_name))
-                schema, rows, job_output = self._cde_connection.get_job_output(
+                schema, rows, failed_job_output = self._cde_connection.get_job_output(
                     job_name, job
                 )
                 logger.debug("{}: Done get job output".format(job_name))
                 logger.error(
-                    "{}: Failed job details: {}".format(job_name, job_output.text)
+                    "{}: Failed job details: {}".format(job_name, failed_job_output.text)
                 )
                 raise dbt.exceptions.raise_database_error(
                     "Error while executing query: " + repr(job_status)
@@ -207,6 +207,8 @@ class CDEApiCursor:
         logger.debug("{}: Job output details: {}".format(job_name, job_output.text))
         self._rows = rows
         self._schema = schema
+
+        self.get_spark_job_events(job_name, job)
 
         # 7. cleanup resources
         logger.debug("{}: Delete job".format(job_name))
@@ -411,7 +413,7 @@ class CDEApiConnection:
             return schema, rows
 
         rows = []
-        for data_line in res_lines[line_number + 2:]:
+        for data_line in res_lines[line_number + 2 :]:
             data_line = data_line.strip()
             if data_line.startswith("+-"):
                 break
@@ -448,20 +450,13 @@ class CDEApiConnection:
         self, job_name, job, log_type="stdout"
     ):  # log_type can be "stdout", "stderr", "event"
 
-        logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
-        # Introducing a wait as job logs can take few secs to be populated after job completion.
-        time.sleep(DEFAULT_LOG_WAIT)
-        logger.debug("{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
-        req_url = (
-            self.base_api_url
-            + "job-runs"
-            + "/"
-            + repr(job["id"])
-            + "/logs?type=driver%2F"
-            + log_type
-            + "&follow=True"
-        )
-        res = requests.get(req_url, headers=self.api_header)
+        # logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+        # # Introducing a wait as job logs can take few secs to be populated after job completion.
+        # time.sleep(DEFAULT_LOG_WAIT)
+        # logger.debug("{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+        req_url = self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/logs"
+        params = {"type": "driver" + "/" + log_type, "follow": "true"}
+        res = requests.get(req_url, params=params, headers=self.api_header)
         # parse the o/p for data
         res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
         if log_type == "stdout":
@@ -583,7 +578,8 @@ class CDEApiConnectionManager:
         self.access_token = res.json()["access_token"]
         self.api_headers = {
             "Authorization": "Bearer " + self.access_token,
-            "Content-Type": "application/json",
+            "Content-Type": "application/json;charset=UTF-8",
+            "accept": "text/plain; charset=utf-8",
         }
 
         connection = CDEApiConnection(
