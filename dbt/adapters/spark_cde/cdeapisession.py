@@ -35,7 +35,7 @@ logger = AdapterLogger("Spark")
 adapter_timer = AdapterTimer()
 
 DEFAULT_POLL_WAIT = 30  # time to sleep in seconds before re-fetching job status
-DEFAULT_LOG_WAIT = 10  # time to wait in seconds for logs to be populated after job run
+DEFAULT_LOG_WAIT = 40  # time to wait in seconds for logs to be populated after job run
 DEFAULT_CDE_JOB_TIMEOUT = (
     900  # max amount of time(in secs) to keep retrying for fetching job status
 )
@@ -202,13 +202,11 @@ class CDEApiCursor:
 
         # 6. fetch and populate the results
         logger.debug("{}: Get job output".format(job_name))
-        schema, rows, job_output = self._cde_connection.get_job_output(job_name, job)
+        schema, rows, success_job_output = self._cde_connection.get_job_output(job_name, job)
         logger.debug("{}: Done get job output".format(job_name))
-        logger.debug("{}: Job output details: {}".format(job_name, job_output.text))
+        logger.debug("{}: Job output details: {}".format(job_name, success_job_output.text))
         self._rows = rows
         self._schema = schema
-
-        self.get_spark_job_events(job_name, job)
 
         # 7. cleanup resources
         logger.debug("{}: Delete job".format(job_name))
