@@ -35,7 +35,7 @@ logger = AdapterLogger("Spark")
 adapter_timer = AdapterTimer()
 
 DEFAULT_POLL_WAIT = 30  # time to sleep in seconds before re-fetching job status
-DEFAULT_LOG_WAIT = 15  # time to sleep in seconds for logs to be populated
+DEFAULT_LOG_WAIT = 10  # time to wait in seconds for logs to be populated after job run
 DEFAULT_CDE_JOB_TIMEOUT = (
     900  # max amount of time(in secs) to keep retrying for fetching job status
 )
@@ -450,10 +450,10 @@ class CDEApiConnection:
         self, job_name, job, log_type="stdout"
     ):  # log_type can be "stdout", "stderr", "event"
 
-        # logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
-        # # Introducing a wait as job logs can take few secs to be populated after job completion.
-        # time.sleep(DEFAULT_LOG_WAIT)
-        # logger.debug("{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+        logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+        # Introducing a wait as job logs can take few secs to be populated after job completion.
+        time.sleep(DEFAULT_LOG_WAIT)
+        logger.debug("{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
         req_url = self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/logs"
         params = {"type": "driver" + "/" + log_type, "follow": "true"}
         res = requests.get(req_url, params=params, headers=self.api_header)
