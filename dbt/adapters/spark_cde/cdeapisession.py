@@ -358,7 +358,7 @@ class CDEApiConnection:
 
         return res
 
-    def get_job_output(self, job):
+    def get_job_output(self, job_name, job):
         res_lines = []
         schema = []
         rows = []
@@ -392,9 +392,12 @@ class CDEApiConnection:
             if no_of_retries > DEFAULT_RETRIES:
                 break
 
+            logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+            # Introducing a wait as job logs can take few secs to be populated after job completion.
             time.sleep(DEFAULT_LOG_WAIT)
-
-        logger.debug("Log result stdout: {}".format(res.text.split("\n")))
+            logger.debug(
+                "{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT)
+            )
 
         line_number = 0
         for line in res_lines:
@@ -404,7 +407,7 @@ class CDEApiConnection:
                 break
 
         if line_number == len(res_lines):
-            return schema, rows
+            return schema, rows, res
 
         # TODO: this following needs cleanup, this is assuming every column is a string
         schema = list(
@@ -417,10 +420,10 @@ class CDEApiConnection:
         )
 
         if len(schema) == 0:
-            return schema, rows
+            return schema, rows, res
 
         rows = []
-        for data_line in res_lines[line_number + 2:]:
+        for data_line in res_lines[line_number + 2 :]:
             data_line = data_line.strip()
             if data_line.startswith("+-"):
                 break
@@ -439,7 +442,7 @@ class CDEApiConnection:
             except Exception:
                 logger.error(traceback.format_exc())
 
-        return schema, rows
+        return schema, rows, res
 
     # since CDE API output of job-runs/{id}/logs doesn't return schema type, but only the SQL output,
     # we need to infer the datatype of each column and update it in schema record. currently only number
