@@ -31,11 +31,16 @@ from typing import Any
 
 logger = AdapterLogger("Spark")
 
-DEFAULT_POLL_WAIT = 2  # seconds
-DEFAULT_LOG_WAIT = 10  # seconds
-DEFAULT_RETRIES = 10  # max number of retries for fetching log
-MIN_LINES_TO_PARSE = (
-    3  # minimum lines in the logs file before we can start to parse the sql output
+# 30 seconds to be a happy medium for polling job status.
+# Too quick polling leads to throttling,unnecessary logs and connection timeouts. Too slow polling adds to latency.
+DEFAULT_POLL_WAIT = 30  # time to sleep in seconds before re-fetching job status
+
+# Safe time to wait for job logs to be populated completely before fetching so that we don't fetch partial results
+DEFAULT_LOG_WAIT = 40  # time to wait in seconds for logs to be populated after job run
+
+# add a job timeout to make sure queries are not stuck to avoid resource starvation
+DEFAULT_CDE_JOB_TIMEOUT = (
+    900  # max amount of time(in secs) to keep retrying for fetching job status
 )
 NUMBERS = DECIMALS + (int, float)
 
@@ -156,6 +161,7 @@ class CDEApiCursor:
         logger.debug("{}: Done run job".format(job_name))
 
         # 5. wait for the result
+        total_time_spent_in_get_job_status = 0
         logger.debug("{}: Get job status".format(job_name))
         job_status = self._cde_connection.get_job_run_status(job).json()
         logger.debug(
@@ -165,6 +171,7 @@ class CDEApiCursor:
 
         while job_status["status"] != CDEApiConnection.JOB_STATUS["succeeded"]:
             logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_POLL_WAIT))
+            total_time_spent_in_get_job_status += DEFAULT_POLL_WAIT
             time.sleep(DEFAULT_POLL_WAIT)
             logger.debug(
                 "{}: Done sleep for {} seconds".format(job_name, DEFAULT_POLL_WAIT)
@@ -190,8 +197,19 @@ class CDEApiCursor:
                     )
                 )
                 raise dbt.exceptions.raise_database_error(
-                    "Error while executing query: " + repr(job_status)
+                    "Error while executing query: "
+                    + repr(job_status)
+                    + "\n"
+                    + failed_job_output.text
                 )
+            # timeout to avoid resource starvation
+            if total_time_spent_in_get_job_status >= DEFAULT_CDE_JOB_TIMEOUT:
+                logger.error(
+                    "{}: Failed getting job status in: {} seconds".format(
+                        job_name, DEFAULT_CDE_JOB_TIMEOUT
+                    )
+                )
+                raise dbt.exceptions.RPCTimeoutException(DEFAULT_CDE_JOB_TIMEOUT)
 
         # 6. fetch and populate the results
         logger.debug("{}: Get job output".format(job_name))
@@ -205,13 +223,47 @@ class CDEApiCursor:
         self._rows = rows
         self._schema = schema
 
-        # 7. cleanup resources
+        # 7.fetch spark events
+        logger.debug("{}: Get spark events".format(job_name))
+        self.log_spark_job_events(job_name, job)
+        logger.debug("{}: Done get spark events".format(job_name))
+
+        # 8. cleanup resources
         logger.debug("{}: Delete job".format(job_name))
         self._cde_connection.delete_job(job_name)
         logger.debug("{}: Done delete job".format(job_name))
         logger.debug("{}: Delete resource".format(job_name))
         self._cde_connection.delete_resource(job_name)
         logger.debug("{}: Done delete resource".format(job_name))
+
+    """
+    Fetch spark events from log and log them along with their corresponding timestamps
+    """
+
+    def log_spark_job_events(self, job_name, job):
+        logger.debug("{}: Log spark job events".format(job_name))
+        events, job_output = self._cde_connection.get_job_output(
+            job_name, job, log_type="event"
+        )
+        logger.debug("{}: Done log spark job events".format(job_name))
+        for r in events:
+            # Convert system time in ms to seconds
+            if "Timestamp" in r:
+                event_time_in_secs = r["Timestamp"] / 1000
+            else:
+                event_time_in_secs = r["time"] / 1000
+
+            logger.debug(
+                "{}: {:<40} {:<40}".format(
+                    job_name,
+                    r["Event"],
+                    dt.datetime.utcfromtimestamp(
+                        event_time_in_secs
+                    )  # generate utc time from system time
+                    .time()
+                    .strftime("%H:%M:%S.%f"),
+                )
+            )
 
     def fetchall(self):
         return self._rows
@@ -358,46 +410,9 @@ class CDEApiConnection:
 
         return res
 
-    def get_job_output(self, job_name, job):
-        res_lines = []
+    def parse_query_result(self, res_lines):
         schema = []
         rows = []
-
-        no_of_retries = 0
-
-        while (
-            len(res_lines) <= MIN_LINES_TO_PARSE
-        ):  # ensure that enough lines are present to start parsing
-            req_url = (
-                self.base_api_url
-                + "job-runs"
-                + "/"
-                + repr(job["id"])
-                + "/logs?type=driver%2Fstdout&follow=true"
-            )
-            res = requests.get(req_url, headers=self.api_header)
-
-            schema = []
-            rows = []
-
-            # parse the o/p for data
-            res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
-
-            n_lines = len(res_lines)
-            if n_lines > MIN_LINES_TO_PARSE:
-                break  # we have some o/p to process, break out - what happens for CREATE stm?
-
-            no_of_retries += 1
-
-            if no_of_retries > DEFAULT_RETRIES:
-                break
-
-            logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
-            # Introducing a wait as job logs can take few secs to be populated after job completion.
-            time.sleep(DEFAULT_LOG_WAIT)
-            logger.debug(
-                "{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT)
-            )
 
         line_number = 0
         for line in res_lines:
@@ -407,7 +422,7 @@ class CDEApiConnection:
                 break
 
         if line_number == len(res_lines):
-            return schema, rows, res
+            return schema, rows
 
         # TODO: this following needs cleanup, this is assuming every column is a string
         schema = list(
@@ -420,7 +435,7 @@ class CDEApiConnection:
         )
 
         if len(schema) == 0:
-            return schema, rows, res
+            return schema, rows
 
         rows = []
         for data_line in res_lines[line_number + 2 :]:
@@ -442,7 +457,39 @@ class CDEApiConnection:
             except Exception:
                 logger.error(traceback.format_exc())
 
-        return schema, rows, res
+        return schema, rows
+
+    def parse_event_result(self, res_lines):
+        events = []
+
+        for event_line in res_lines:
+            if len(event_line.strip()):
+                json_rec = json.loads(event_line)
+                if "Timestamp" in json_rec or "time" in json_rec:
+                    events.append(json_rec)
+
+        return events
+
+    def get_job_output(
+        self, job_name, job, log_type="stdout"
+    ):  # log_type can be "stdout", "stderr", "event"
+
+        logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+        # Introducing a wait as job logs can take few secs to be populated after job completion.
+        time.sleep(DEFAULT_LOG_WAIT)
+        logger.debug("{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+        req_url = self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/logs"
+        params = {"type": "driver" + "/" + log_type, "follow": "true"}
+        res = requests.get(req_url, params=params, headers=self.api_header)
+        # parse the o/p for data
+        res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
+        if log_type == "stdout":
+            schema, rows = self.parse_query_result(res_lines)
+            return schema, rows, res
+        elif log_type == "event":
+            return self.parse_event_result(res_lines), res
+        else:
+            return res_lines, res
 
     # since CDE API output of job-runs/{id}/logs doesn't return schema type, but only the SQL output,
     # we need to infer the datatype of each column and update it in schema record. currently only number
@@ -555,7 +602,8 @@ class CDEApiConnectionManager:
         self.access_token = res.json()["access_token"]
         self.api_headers = {
             "Authorization": "Bearer " + self.access_token,
-            "Content-Type": "application/json",
+            "Content-Type": "application/json;charset=UTF-8",
+            "accept": "text/plain; charset=utf-8",
         }
 
         connection = CDEApiConnection(
