@@ -18,6 +18,7 @@ import datetime as dt
 import dbt.exceptions
 import io
 import json
+import random
 import requests
 import time
 import traceback
@@ -88,9 +89,13 @@ class CDEApiCursor:
 
     # TODO: kill the running job?
 
+    # randomize the job name generated based on current time as we can have multiple threads
+    # running, and we want to have a unique job id.
     def generate_job_name(self):
         time_ms = round(time.time() * 1000)
-        job_name = "cde_api_session_job" + "-" + repr(time_ms)
+        job_name = (
+            "dbt-job-" + repr(time_ms) + "-" + str(random.randint(0, 1000)).zfill(8)
+        )
         return job_name
 
     def execute(self, sql: str, *parameters: Any) -> None:
@@ -101,57 +106,112 @@ class CDEApiCursor:
 
         # 0. generate a job name
         job_name = self.generate_job_name()
+        logger.debug(
+            "{}: Job created with id: {} for SQL statement:\n{}".format(
+                job_name, job_name, sql
+            )
+        )
 
         # 1. create resource
-        self._cde_connection.delete_resource(job_name)
+        logger.debug("{}: Create resources: files".format(job_name))
         self._cde_connection.create_resource(job_name, "files")
+        logger.debug("{}: Done create resource: files".format(job_name))
 
+        # 2. upload the resources
         sql_resource = self._cde_api_helper.generate_sql_resource(job_name, sql)
         py_resource = self._cde_api_helper.get_python_wrapper_resource(sql_resource)
 
-        # 2. upload the resource
+        logger.debug(
+            "{}: Upload resource: SQL resource: {}".format(
+                job_name, sql_resource["file_name"]
+            )
+        )
         self._cde_connection.upload_resource(job_name, sql_resource)
+        logger.debug(
+            "{}: Done upload resources: SQL resource: {}".format(
+                job_name, sql_resource["file_name"]
+            )
+        )
+        logger.debug(
+            "{}: Upload resource: py resource: {}".format(
+                job_name, py_resource["file_name"]
+            )
+        )
         self._cde_connection.upload_resource(job_name, py_resource)
 
-        # 2. submit the job
-        self._cde_connection.delete_job(job_name)
+        logger.debug(
+            "{}: Done upload resource: py resource: {}".format(
+                job_name, py_resource["file_name"]
+            )
+        )
 
+        # 3. submit the job
+        logger.debug("{}: Submit job".format(job_name))
         self._cde_connection.submit_job(job_name, job_name, sql_resource, py_resource)
+        logger.debug("{}: Done submit job".format(job_name))
 
+        # 4. run the job
+        logger.debug("{}: Run job".format(job_name))
         job = self._cde_connection.run_job(job_name).json()
-        self._cde_connection.get_job_status(job_name)
+        logger.debug("{}: Done run job".format(job_name))
 
-        # 3. run the job
+        # 5. wait for the result
+        logger.debug("{}: Get job status".format(job_name))
         job_status = self._cde_connection.get_job_run_status(job).json()
-        # 4. wait for the result
+        logger.debug(
+            "{}: Current Job status: {}".format(job_name, job_status["status"])
+        )
+        logger.debug("{}: Done get job status".format(job_name))
+
         while job_status["status"] != CDEApiConnection.JOB_STATUS["succeeded"]:
+            logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_POLL_WAIT))
             time.sleep(DEFAULT_POLL_WAIT)
+            logger.debug(
+                "{}: Done sleep for {} seconds".format(job_name, DEFAULT_POLL_WAIT)
+            )
+
+            logger.debug("{}: Get job status".format(job_name))
             job_status = self._cde_connection.get_job_run_status(job).json()
+            logger.debug(
+                "{}: Current Job status: {}".format(job_name, job_status["status"])
+            )
+            logger.debug("{}: Done get job status".format(job_name))
+
             # throw exception and print to console for failed job.
             if job_status["status"] == CDEApiConnection.JOB_STATUS["failed"]:
-                print("Job Failed", sql, job_status)
-                self._cde_connection.get_job_output(job)
+                logger.debug("{}: Get job output".format(job_name))
+                schema, rows, failed_job_output = self._cde_connection.get_job_output(
+                    job_name, job
+                )
+                logger.debug("{}: Done get job output".format(job_name))
+                logger.error(
+                    "{}: Failed job details: {}".format(
+                        job_name, failed_job_output.text
+                    )
+                )
                 raise dbt.exceptions.raise_database_error(
                     "Error while executing query: " + repr(job_status)
                 )
 
-        logger.debug("Job created with id: {}".format(job_name))
-        logger.debug("Job created with sql statement: {}".format(sql))
-        logger.debug("Job status: {}".format(job_status["status"]))
-        logger.debug("Job run other details: {}".format(job_status))
-
-        # 5. fetch and populate the results
-        time.sleep(DEFAULT_LOG_WAIT)
-        schema, rows = self._cde_connection.get_job_output(job)
-
+        # 6. fetch and populate the results
+        logger.debug("{}: Get job output".format(job_name))
+        schema, rows, success_job_output = self._cde_connection.get_job_output(
+            job_name, job
+        )
+        logger.debug("{}: Done get job output".format(job_name))
+        logger.debug(
+            "{}: Job output details: {}".format(job_name, success_job_output.text)
+        )
         self._rows = rows
         self._schema = schema
 
-        # 6. cleanup resources
-        self._cde_connection.delete_resource(job_name)
+        # 7. cleanup resources
+        logger.debug("{}: Delete job".format(job_name))
         self._cde_connection.delete_job(job_name)
-
-        # Profile each individual method being invoked in the session
+        logger.debug("{}: Done delete job".format(job_name))
+        logger.debug("{}: Delete resource".format(job_name))
+        self._cde_connection.delete_resource(job_name)
+        logger.debug("{}: Done delete resource".format(job_name))
 
     def fetchall(self):
         return self._rows
@@ -163,6 +223,7 @@ class CDEApiCursor:
             row = None
 
         return row
+
 
 class CDEApiHelper:
     def __init__(self) -> None:
@@ -297,7 +358,7 @@ class CDEApiConnection:
 
         return res
 
-    def get_job_output(self, job):
+    def get_job_output(self, job_name, job):
         res_lines = []
         schema = []
         rows = []
@@ -331,9 +392,12 @@ class CDEApiConnection:
             if no_of_retries > DEFAULT_RETRIES:
                 break
 
+            logger.debug("{}: Sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
+            # Introducing a wait as job logs can take few secs to be populated after job completion.
             time.sleep(DEFAULT_LOG_WAIT)
-
-        logger.debug("Log result stdout: {}".format(res.text.split("\n")))
+            logger.debug(
+                "{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT)
+            )
 
         line_number = 0
         for line in res_lines:
@@ -343,7 +407,7 @@ class CDEApiConnection:
                 break
 
         if line_number == len(res_lines):
-            return schema, rows
+            return schema, rows, res
 
         # TODO: this following needs cleanup, this is assuming every column is a string
         schema = list(
@@ -356,7 +420,7 @@ class CDEApiConnection:
         )
 
         if len(schema) == 0:
-            return schema, rows
+            return schema, rows, res
 
         rows = []
         for data_line in res_lines[line_number + 2 :]:
@@ -376,9 +440,9 @@ class CDEApiConnection:
             try:
                 schema, rows = self.extract_datatypes(schema, rows)
             except Exception:
-                print(traceback.format_exc())
+                logger.error(traceback.format_exc())
 
-        return schema, rows
+        return schema, rows, res
 
     # since CDE API output of job-runs/{id}/logs doesn't return schema type, but only the SQL output,
     # we need to infer the datatype of each column and update it in schema record. currently only number
