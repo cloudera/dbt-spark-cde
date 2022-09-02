@@ -197,7 +197,10 @@ class CDEApiCursor:
                     )
                 )
                 raise dbt.exceptions.raise_database_error(
-                    "Error while executing query: " + repr(job_status)
+                    "Error while executing query: "
+                    + repr(job_status)
+                    + "\n"
+                    + failed_job_output.text
                 )
             # timeout to avoid resource starvation
             if total_time_spent_in_get_job_status >= DEFAULT_CDE_JOB_TIMEOUT:
@@ -220,7 +223,12 @@ class CDEApiCursor:
         self._rows = rows
         self._schema = schema
 
-        # 7. cleanup resources
+        # 7.fetch spark events
+        logger.debug("{}: Get spark events".format(job_name))
+        self.get_spark_job_events(job_name, job)
+        logger.debug("{}: Done get spark events".format(job_name))
+
+        # 8. cleanup resources
         logger.debug("{}: Delete job".format(job_name))
         self._cde_connection.delete_job(job_name)
         logger.debug("{}: Done delete job".format(job_name))
