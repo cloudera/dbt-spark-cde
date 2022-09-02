@@ -225,7 +225,7 @@ class CDEApiCursor:
 
         # 7.fetch spark events
         logger.debug("{}: Get spark events".format(job_name))
-        self.get_spark_job_events(job_name, job)
+        self.log_spark_job_events(job_name, job)
         logger.debug("{}: Done get spark events".format(job_name))
 
         # 8. cleanup resources
@@ -240,12 +240,12 @@ class CDEApiCursor:
     Fetch spark events from log and log them along with their corresponding timestamps
     """
 
-    def get_spark_job_events(self, job_name, job):
-        logger.debug("{}: Get spark job events".format(job_name))
+    def log_spark_job_events(self, job_name, job):
+        logger.debug("{}: Log spark job events".format(job_name))
         events, job_output = self._cde_connection.get_job_output(
             job_name, job, log_type="event"
         )
-        logger.debug("{}: Done get spark job events".format(job_name))
+        logger.debug("{}: Done log spark job events".format(job_name))
         for r in events:
             # Convert system time in ms to seconds
             if "Timestamp" in r:
