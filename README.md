@@ -9,7 +9,7 @@ The `dbt-spark-cde` adapter allows you to use [dbt](https://www.getdbt.com/) [Cl
 
 ### Requirements
 
-Python >= 3.8
+Python >= 3.9
 
 dbt-core >= 1.1.0
 
