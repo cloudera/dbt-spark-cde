@@ -320,10 +320,11 @@ class CDEApiConnection:
         "failed": "failed",
     }
 
-    def __init__(self, base_api_url, access_token, api_header) -> None:
+    def __init__(self, base_api_url, access_token, api_header, session_params) -> None:
         self.base_api_url = base_api_url
         self.access_token = access_token
         self.api_header = api_header
+        self.session_params = session_params
 
     def create_resource(self, resource_name, resource_type):
         params = {"hidden": False, "name": resource_name, "type": resource_type}
@@ -380,6 +381,10 @@ class CDEApiConnection:
         params["spark"]["file"] = py_resource["file_name"]
         params["spark"]["files"] = [sql_resource["file_name"]]
         params["spark"]["conf"] = {"spark.pyspark.python": "python3"}
+
+        # add user specified session parameters
+        for key, value in self.session_params.items():
+            params["spark"]["conf"][key] = value
 
         res = requests.post(
             self.base_api_url + "jobs", data=json.dumps(params), headers=self.api_header
@@ -578,6 +583,7 @@ class CDEApiConnectionManager:
         self.password = ""
         self.access_token = ""
         self.api_headers = {}
+        self.session_params = {}
 
     def get_base_auth_url(self):
         return self.base_auth_url
@@ -588,11 +594,12 @@ class CDEApiConnectionManager:
     def get_auth_endpoint(self):
         return self.get_base_auth_url() + "gateway/authtkn/knoxtoken/api/v1/token"
 
-    def connect(self, user_name, password, base_auth_url, base_api_url):
+    def connect(self, user_name, password, base_auth_url, base_api_url, session_params):
         self.base_auth_url = base_auth_url
         self.base_api_url = base_api_url
         self.user_name = user_name
         self.password = password
+        self.session_params = session_params
 
         auth_endpoint = self.get_auth_endpoint()
         auth = requests.auth.HTTPBasicAuth(self.user_name, self.password)
@@ -607,7 +614,7 @@ class CDEApiConnectionManager:
         }
 
         connection = CDEApiConnection(
-            self.base_api_url, self.access_token, self.api_headers
+            self.base_api_url, self.access_token, self.api_headers, self.session_params
         )
 
         return connection
