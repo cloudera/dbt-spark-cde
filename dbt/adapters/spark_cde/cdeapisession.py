@@ -495,7 +495,6 @@ class CDEApiConnection:
 
         return events
 
-    @exception_handler
     def get_job_output(
         self, job_name, job, log_type="stdout"
     ):  # log_type can be "stdout", "stderr", "event"
