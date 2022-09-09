@@ -325,6 +325,25 @@ class CDEApiConnection:
         self.access_token = access_token
         self.api_header = api_header
 
+    # Handle all exceptions from post/get requests during API calls. If any request fails we fail fast and stop
+    # proceeding to the next api call.
+    def exception_handler(func):
+        def inner_function(*args, **kwargs):
+            res = None
+            try:
+                res = func(*args, **kwargs)
+                if res.status_code not in range(200, 300):
+                    raise dbt.exceptions.DbtProfileError(
+                        "Error communicating with cde spark host."
+                    )
+                res.raise_for_status()
+            except requests.exceptions.RequestException as err:
+                print(f"RequestException: ", err)
+
+            return res
+        return inner_function
+
+    @exception_handler
     def create_resource(self, resource_name, resource_type):
         params = {"hidden": False, "name": resource_name, "type": resource_type}
         res = requests.post(
@@ -334,6 +353,7 @@ class CDEApiConnection:
         )
         return res
 
+    @exception_handler
     def delete_resource(self, resource_name):
         res = requests.delete(
             self.base_api_url + "resources" + "/" + resource_name,
@@ -341,6 +361,7 @@ class CDEApiConnection:
         )
         return res
 
+    @exception_handler
     def upload_resource(self, resource_name, file_resource):
         file_put_url = (
             self.base_api_url
@@ -369,6 +390,7 @@ class CDEApiConnection:
         res = requests.put(file_put_url, data=encoded_file_data, headers=header)
         return res
 
+    @exception_handler
     def submit_job(self, job_name, resource_name, sql_resource, py_resource):
         params = {
             "name": job_name,
@@ -387,6 +409,7 @@ class CDEApiConnection:
 
         return res
 
+    @exception_handler
     def get_job_status(self, job_name):
         res = requests.get(
             self.base_api_url + "jobs" + "/" + job_name, headers=self.api_header
@@ -394,6 +417,7 @@ class CDEApiConnection:
 
         return res
 
+    @exception_handler
     def get_job_run_status(self, job):
         res = requests.get(
             self.base_api_url + "job-runs" + "/" + repr(job["id"]),
@@ -402,6 +426,7 @@ class CDEApiConnection:
 
         return res
 
+    @exception_handler
     def get_job_log_types(self, job):
         res = requests.get(
             self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/log-types",
@@ -438,7 +463,7 @@ class CDEApiConnection:
             return schema, rows
 
         rows = []
-        for data_line in res_lines[line_number + 2 :]:
+        for data_line in res_lines[line_number + 2:]:
             data_line = data_line.strip()
             if data_line.startswith("+-"):
                 break
@@ -470,6 +495,7 @@ class CDEApiConnection:
 
         return events
 
+    @exception_handler
     def get_job_output(
         self, job_name, job, log_type="stdout"
     ):  # log_type can be "stdout", "stderr", "event"
@@ -548,6 +574,7 @@ class CDEApiConnection:
 
         return schema, rows
 
+    @exception_handler
     def delete_job(self, job_name):
         res = requests.delete(
             self.base_api_url + "jobs" + "/" + job_name, headers=self.api_header
@@ -555,6 +582,7 @@ class CDEApiConnection:
 
         return res
 
+    @exception_handler
     def run_job(self, job_name):
         spec = {}
 
@@ -596,10 +624,32 @@ class CDEApiConnectionManager:
 
         auth_endpoint = self.get_auth_endpoint()
         auth = requests.auth.HTTPBasicAuth(self.user_name, self.password)
+        response = None
 
-        res = requests.get(auth_endpoint, auth=auth)
+        # print error for http connection for user debugging. The original spark code is swallowing
+        # this as a generic FailedToConnectException
+        try:
+            response = requests.get(auth_endpoint, auth=auth)
+            response.raise_for_status()
+        except requests.exceptions.ConnectionError as c_err:
+            print("Connection Error :", c_err)
+        except requests.exceptions.HTTPError as h_err:
+            print("Http Error: ", h_err)
+        except requests.exceptions.Timeout as t_err:
+            print("Timeout Error: ", t_err)
+        except requests.exceptions.RequestException as err:
+            print(
+                "Authorization Error: ", err
+            )
 
-        self.access_token = res.json()["access_token"]
+        if response is None:
+            raise Exception("Json response is not valid")
+
+        try:
+            self.access_token = response.json()["access_token"]
+        except requests.exceptions.JSONDecodeError as exc:
+            raise Exception('Json decode error to get auth token for response') from exc
+
         self.api_headers = {
             "Authorization": "Bearer " + self.access_token,
             "Content-Type": "application/json;charset=UTF-8",
