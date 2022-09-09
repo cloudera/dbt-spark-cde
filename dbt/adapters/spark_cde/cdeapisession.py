@@ -327,20 +327,16 @@ class CDEApiConnection:
 
     # Handle all exceptions from post/get requests during API calls. If any request fails we fail fast and stop
     # proceeding to the next api call.
-    def exception_handler(func):
+    def exception_handler(self):
         def inner_function(*args, **kwargs):
-            res = None
-            try:
-                res = func(*args, **kwargs)
-                if res.status_code not in range(200, 300):
-                    raise dbt.exceptions.DbtProfileError(
-                        "Error communicating with cde spark host."
-                    )
+            res = self(*args, **kwargs)
+            if res is None or res.status_code not in range(200, 300):
+                raise dbt.exceptions.DbtProfileError(
+                    "Error communicating with cde spark host.",
+                )
                 res.raise_for_status()
-            except requests.exceptions.RequestException as err:
-                print(f"RequestException: ", err)
-
             return res
+
         return inner_function
 
     @exception_handler
@@ -463,7 +459,7 @@ class CDEApiConnection:
             return schema, rows
 
         rows = []
-        for data_line in res_lines[line_number + 2:]:
+        for data_line in res_lines[line_number + 2 :]:
             data_line = data_line.strip()
             if data_line.startswith("+-"):
                 break
@@ -637,9 +633,7 @@ class CDEApiConnectionManager:
         except requests.exceptions.Timeout as t_err:
             print("Timeout Error: ", t_err)
         except requests.exceptions.RequestException as err:
-            print(
-                "Authorization Error: ", err
-            )
+            print("Authorization Error: ", err)
 
         if response is None:
             raise Exception("Json response is not valid")
@@ -647,7 +641,7 @@ class CDEApiConnectionManager:
         try:
             self.access_token = response.json()["access_token"]
         except requests.exceptions.JSONDecodeError as exc:
-            raise Exception('Json decode error to get auth token for response') from exc
+            raise Exception("Json decode error to get auth token for response") from exc
 
         self.api_headers = {
             "Authorization": "Bearer " + self.access_token,
