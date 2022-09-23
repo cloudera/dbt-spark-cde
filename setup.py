@@ -50,7 +50,7 @@ def _get_dbt_core_version():
 
 
 package_name = "dbt-spark-cde"
-package_version = "1.1.3"
+package_version = "1.1.4"
 dbt_core_version = _get_dbt_core_version()
 description = """The CDE API based Cloudera Spark adapter plugin for dbt"""
 
