@@ -18,6 +18,7 @@ import datetime as dt
 import dbt.exceptions
 import io
 import json
+import agate
 import os
 import random
 import requests
@@ -207,8 +208,14 @@ class CDEApiCursor:
                 )
 
                 raise dbt.exceptions.raise_database_error(
-                    "Error while executing CDE Job: "
-                    + job_name
+                    "Error while executing query: "
+                    + repr(job_status)
+                    + "\n"
+                    + "SQL: "
+                    + sql
+                    + "\n"
+                    + "Error: "
+                    + failed_job_output.text
                 )
             # timeout to avoid resource starvation
             if total_time_spent_in_get_job_status >= DEFAULT_CDE_JOB_TIMEOUT:
@@ -465,6 +472,26 @@ class CDEApiConnection:
 
         return res
 
+    def convert_rows(self, schema, rows):
+        """
+            convert row list into agate.Row list
+        """
+        raw_rows = []
+
+        n_items = len(schema)
+        col_names = list(map(lambda x: x['name'], schema))
+        for row in rows:
+            n_cols = len(row)
+            rec = []
+            for idx in range(n_items):
+                if idx < n_cols:
+                    rec.append(row[idx])
+                else:
+                    rec.append(None)
+            raw_rows.append(agate.Row(rec, col_names))
+
+        return schema, raw_rows
+
     def parse_query_result(self, res_lines):
         schema = []
         rows = []
@@ -509,7 +536,8 @@ class CDEApiConnection:
         if len(rows) > 0:
             try:
                 schema, rows = self.extract_datatypes(schema, rows)
-            except Exception:
+                schema, rows = self.convert_rows(schema, rows)
+            except Exception as ex:
                 logger.error(traceback.format_exc())
 
         return schema, rows
@@ -537,7 +565,7 @@ class CDEApiConnection:
         params = {"type": "driver" + "/" + log_type, "follow": "true"}
         res = requests.get(req_url, params=params, headers=self.api_header)
         # parse the o/p for data
-        res_lines = list(map(lambda x: x.strip(), res.text.split("\n")))
+        res_lines = res.text.split("\n")
         if log_type == "stdout":
             schema, rows = self.parse_query_result(res_lines)
             return schema, rows, res
