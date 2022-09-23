@@ -32,7 +32,9 @@
     {% do adapter.drop_relation(existing_relation) %}
     {% set build_sql = create_table_as(False, target_relation, sql) %}
   {% else %}
-    {% do run_query(create_table_as(True, tmp_relation, sql)) %}
+    {% do adapter.drop_relation(tmp_relation.incorporate(type='table')) %}
+    {% do adapter.drop_relation(tmp_relation.incorporate(type='view')) %}
+    {% do run_query(create_table_as(False, tmp_relation, sql)) %}
     {% do process_schema_changes(on_schema_change, tmp_relation, existing_relation) %}
     {% set build_sql = dbt_spark_get_incremental_sql(strategy, tmp_relation, target_relation, unique_key) %}
   {% endif %}
@@ -40,6 +42,9 @@
   {%- call statement('main') -%}
     {{ build_sql }}
   {%- endcall -%}
+
+  {% do adapter.drop_relation(tmp_relation.incorporate(type='table')) %}
+  {% do adapter.drop_relation(tmp_relation.incorporate(type='view')) %}
 
   {% do persist_docs(target_relation, model) %}
 
