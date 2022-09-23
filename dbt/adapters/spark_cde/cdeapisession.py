@@ -207,10 +207,8 @@ class CDEApiCursor:
                 )
 
                 raise dbt.exceptions.raise_database_error(
-                    "Error while executing query: "
-                    + repr(job_status)
-                    + "\n"
-                    + failed_job_output.text
+                    "Error while executing CDE Job: "
+                    + job_name
                 )
             # timeout to avoid resource starvation
             if total_time_spent_in_get_job_status >= DEFAULT_CDE_JOB_TIMEOUT:
@@ -259,7 +257,7 @@ class CDEApiCursor:
             directory = os.path.join(os.getcwd(), "logs", error_file_name)
 
             with open(directory, "w") as file:
-                file.write(failed_job_stderr)
+                file.write(failed_job_stderr.text)
 
         except Exception as ex:
             logger.error(
