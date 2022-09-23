@@ -18,6 +18,7 @@ import datetime as dt
 import dbt.exceptions
 import io
 import json
+import os
 import random
 import requests
 import time
@@ -184,8 +185,11 @@ class CDEApiCursor:
             )
             logger.debug("{}: Done get job status".format(job_name))
 
-            # throw exception and print to console for failed job.
-            if job_status["status"] == CDEApiConnection.JOB_STATUS["failed"]:
+            # throw exception and print to console for failed/killed job.
+            if (
+                job_status["status"] == CDEApiConnection.JOB_STATUS["failed"]
+                or job_status["status"] == CDEApiConnection.JOB_STATUS["killed"]
+            ):
                 logger.debug("{}: Get job output".format(job_name))
                 schema, rows, failed_job_output = self._cde_connection.get_job_output(
                     job_name, job
@@ -196,6 +200,12 @@ class CDEApiCursor:
                         job_name, failed_job_output.text
                     )
                 )
+                logger.debug("{}: Log failed job stderr output".format(job_name))
+                self.log_spark_driver_errors(job, job_name)
+                logger.debug(
+                    "{}: Done logging failed job stderr output".format(job_name)
+                )
+
                 raise dbt.exceptions.raise_database_error(
                     "Error while executing query: "
                     + repr(job_status)
@@ -235,6 +245,26 @@ class CDEApiCursor:
         logger.debug("{}: Delete resource".format(job_name))
         self._cde_connection.delete_resource(job_name)
         logger.debug("{}: Done delete resource".format(job_name))
+
+    """
+    Fetch spark driver stderr log and create a new log file with job name which has failed
+    """
+    def log_spark_driver_errors(self, job, job_name):
+        try:
+            events, failed_job_stderr = self._cde_connection.get_job_output(
+                job_name, job, log_type="stderr"
+            )
+
+            error_file_name = job_name + ".stderr.log"
+            directory = os.path.join(os.getcwd(), "logs", error_file_name)
+
+            with open(directory, "w") as file:
+                file.write(failed_job_stderr)
+
+        except Exception as ex:
+            logger.error(
+                "{}: Failed to get job spark driver stderr output. {}".format(job_name, ex)
+            )
 
     """
     Fetch spark events from log and log them along with their corresponding timestamps
@@ -318,6 +348,7 @@ class CDEApiConnection:
         "running": "running",
         "succeeded": "succeeded",
         "failed": "failed",
+        "killed": "killed",
     }
 
     def __init__(self, base_api_url, access_token, api_header, session_params) -> None:
