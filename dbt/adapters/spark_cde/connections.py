@@ -588,7 +588,7 @@ def track_usage(data):
     # prod creds
     headers = {
         "x-api-key": config("SNOWPLOW_API_KEY"),
-        "x-datacoral-environment": config("SNOWPLOW_ENNV"),
+        "x-datacoral-environment": config("SNOWPLOW_ENV"),
         "x-datacoral-passthrough": "true",
     }
 
