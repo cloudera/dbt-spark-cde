@@ -489,25 +489,6 @@ class SparkConnectionManager(SQLConnectionManager):
                             creds.cde_session_parameters
                         )
                     )
-                    try:
-                        if creds.usage_tracking:
-                            tracking_data = {}
-                            payload = {}
-                            payload["id"] = "dbt_spark_cde_open"
-                            payload["unique_hash"] = hashlib.md5(
-                                creds.host.encode()
-                            ).hexdigest()
-                            payload["auth"] = "cde"
-                            payload["connection_state"] = connection.state
-
-                            tracking_data["data"] = payload
-
-                            the_track_thread = threading.Thread(
-                                target=track_usage, kwargs={"data": tracking_data}
-                            )
-                            the_track_thread.start()
-                    except:
-                        logger.debug("Usage tracking error")
                 else:
                     raise dbt.exceptions.DbtProfileError(
                         f"invalid credential method: {creds.method}"
