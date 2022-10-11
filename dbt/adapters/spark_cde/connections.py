@@ -9,12 +9,14 @@ import dbt.adapters.spark_livy.cloudera_tracking as tracker
 
 from dbt.adapters.base import Credentials
 from dbt.adapters.sql import SQLConnectionManager
-from dbt.contracts.connection import AdapterRequiredConfig, ConnectionState, AdapterResponse, Connection
+from dbt.contracts.connection import ConnectionState, AdapterResponse, Connection
+from dbt.events.functions import fire_event
 from dbt.events.types import ConnectionUsed, SQLQuery, SQLQueryStatus
 from dbt.events import AdapterLogger
 from dbt.events.functions import fire_event
 from dbt.utils import DECIMALS
 from dbt.adapters.spark_cde import __version__
+import dbt.adapters.spark_cde.cloudera_tracking as tracker
 from dbt.adapters.spark_cde.cdeapisession import (
     CDEApiSessionConnectionWrapper,
     CDEApiConnectionManager,
@@ -531,31 +533,6 @@ class SparkConnectionManager(SQLConnectionManager):
         connection.state = ConnectionState.OPEN
         return connection
 
-    @classmethod
-    def close(cls, connection):
-        try:
-            # if the connection is in closed or init, there's nothing to do
-            if connection.state in {ConnectionState.CLOSED, ConnectionState.INIT}:
-                return connection
-
-            connection_close_start_time = time.time()
-            connection = super().close(connection)
-            connection_close_end_time = time.time()
-
-            payload = {
-                "event_type": "dbt_spark_livy_close",
-                "connection_state": ConnectionState.CLOSED,
-                "elapsed_time": "{:.2f}".format(
-                    connection_close_end_time - connection_close_start_time
-                ),
-            }
-
-            tracker.track_usage(payload)
-
-            return connection
-        except Exception as err:
-            logger.debug(f"Error closing connection {err}")
-
     def add_query(
         self,
         sql: str,
@@ -584,7 +561,7 @@ class SparkConnectionManager(SQLConnectionManager):
 
             # track usage
             payload = {
-                "event_type": "dbt_spark_livy_start_query",
+                "event_type": "dbt_spark_cde_start_query",
                 "sql": log_sql,
                 "profile_name": self.profile.profile_name
             }
@@ -611,7 +588,7 @@ class SparkConnectionManager(SQLConnectionManager):
             elapsed_time = time.time() - pre
 
             payload = {
-                "event_type": "dbt_spark_livy_end_query",
+                "event_type": "dbt_spark_cde_end_query",
                 "sql": log_sql,
                 "elapsed_time": "{:.2f}".format(elapsed_time),
                 "status": query_status,
