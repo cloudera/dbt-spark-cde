@@ -560,6 +560,10 @@ class SparkConnectionManager(SQLConnectionManager):
                     connection_close_end_time - connection_close_start_time
                 ),
                 
+            return connection
+        except Exception as err:
+            logger.debug(f"Error closing connection {err}")
+                
     def add_query(
         self,
         sql: str,
@@ -622,10 +626,6 @@ class SparkConnectionManager(SQLConnectionManager):
                 "profile_name": self.profile.profile_name
 
             tracker.track_usage(payload)
-
-            return connection
-        except Exception as err:
-            logger.debug(f"Error closing connection {err}")
             
             # re-raise query exception so that it propogates to dbt
             if query_exception:
