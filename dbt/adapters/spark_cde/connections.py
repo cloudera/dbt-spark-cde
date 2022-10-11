@@ -626,7 +626,7 @@ class SparkConnectionManager(SQLConnectionManager):
                 "profile_name": self.profile.profile_name
 
             tracker.track_usage(payload)
-            
+
             # re-raise query exception so that it propogates to dbt
             if query_exception:
                 raise query_exception
