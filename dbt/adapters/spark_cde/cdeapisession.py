@@ -31,6 +31,9 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 from typing import Any
 # fmt: on
 
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
 logger = AdapterLogger("Spark")
 
 # 30 seconds to be a happy medium for polling job status.
@@ -356,11 +359,12 @@ class CDEApiConnection:
         "killed": "killed",
     }
 
-    def __init__(self, base_api_url, access_token, api_header, session_params) -> None:
+    def __init__(self, base_api_url, access_token, api_header, session_params, verify_ssl_certificate) -> None:
         self.base_api_url = base_api_url
         self.access_token = access_token
         self.api_header = api_header
         self.session_params = session_params
+        self.verify_ssl_certificate = verify_ssl_certificate
 
     # Handle all exceptions from post/get requests during API calls. If any request fails we fail fast and stop
     # proceeding to the next api call.
@@ -383,6 +387,7 @@ class CDEApiConnection:
             self.base_api_url + "resources",
             data=json.dumps(params),
             headers=self.api_header,
+            verify=self.verify_ssl_certificate
         )
         return res
 
@@ -391,6 +396,7 @@ class CDEApiConnection:
         res = requests.delete(
             self.base_api_url + "resources" + "/" + resource_name,
             headers=self.api_header,
+            verify=self.verify_ssl_certificate
         )
         return res
 
@@ -420,7 +426,12 @@ class CDEApiConnection:
             "Content-Type": encoded_file_data.content_type,
         }
 
-        res = requests.put(file_put_url, data=encoded_file_data, headers=header)
+        res = requests.put(
+            file_put_url, 
+            data=encoded_file_data, 
+            headers=header, 
+            verify=self.verify_ssl_certificate
+        )
         return res
 
     @exception_handler
@@ -441,7 +452,9 @@ class CDEApiConnection:
             params["spark"]["conf"][key] = value
 
         res = requests.post(
-            self.base_api_url + "jobs", data=json.dumps(params), headers=self.api_header
+            self.base_api_url + "jobs", data=json.dumps(params), 
+            headers=self.api_header, 
+            verify=self.verify_ssl_certificate
         )
 
         return res
@@ -449,7 +462,9 @@ class CDEApiConnection:
     @exception_handler
     def get_job_status(self, job_name):
         res = requests.get(
-            self.base_api_url + "jobs" + "/" + job_name, headers=self.api_header
+            self.base_api_url + "jobs" + "/" + job_name, 
+            headers=self.api_header, 
+            verify=self.verify_ssl_certificate
         )
 
         return res
@@ -459,6 +474,7 @@ class CDEApiConnection:
         res = requests.get(
             self.base_api_url + "job-runs" + "/" + repr(job["id"]),
             headers=self.api_header,
+            verify=self.verify_ssl_certificate
         )
 
         return res
@@ -468,6 +484,7 @@ class CDEApiConnection:
         res = requests.get(
             self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/log-types",
             headers=self.api_header,
+            verify=self.verify_ssl_certificate
         )
 
         return res
@@ -563,7 +580,12 @@ class CDEApiConnection:
         logger.debug("{}: Done sleep for {} seconds".format(job_name, DEFAULT_LOG_WAIT))
         req_url = self.base_api_url + "job-runs" + "/" + repr(job["id"]) + "/logs"
         params = {"type": "driver" + "/" + log_type, "follow": "true"}
-        res = requests.get(req_url, params=params, headers=self.api_header)
+        res = requests.get(
+            req_url, 
+            params=params, 
+            headers=self.api_header, 
+            verify=self.verify_ssl_certificate
+        )
         # parse the o/p for data
         res_lines = res.text.split("\n")
         if log_type == "stdout":
@@ -634,7 +656,8 @@ class CDEApiConnection:
     @exception_handler
     def delete_job(self, job_name):
         res = requests.delete(
-            self.base_api_url + "jobs" + "/" + job_name, headers=self.api_header
+            self.base_api_url + "jobs" + "/" + job_name, headers=self.api_header,
+            verify=self.verify_ssl_certificate
         )
 
         return res
@@ -647,6 +670,7 @@ class CDEApiConnection:
             self.base_api_url + "jobs" + "/" + job_name + "/" + "run",
             data=json.dumps(spec),
             headers=self.api_header,
+            verify=self.verify_ssl_certificate
         )
 
         return res
@@ -674,12 +698,13 @@ class CDEApiConnectionManager:
     def get_auth_endpoint(self):
         return self.get_base_auth_url() + "gateway/authtkn/knoxtoken/api/v1/token"
 
-    def connect(self, user_name, password, base_auth_url, base_api_url, session_params):
+    def connect(self, user_name, password, base_auth_url, base_api_url, session_params, verify_ssl_certificate=False):
         self.base_auth_url = base_auth_url
         self.base_api_url = base_api_url
         self.user_name = user_name
         self.password = password
         self.session_params = session_params
+        self.verify_ssl_certificate = verify_ssl_certificate
 
         auth_endpoint = self.get_auth_endpoint()
         auth = requests.auth.HTTPBasicAuth(self.user_name, self.password)
@@ -688,7 +713,7 @@ class CDEApiConnectionManager:
         # print error for http connection for user debugging. The original spark code is swallowing
         # this as a generic FailedToConnectException
         try:
-            response = requests.get(auth_endpoint, auth=auth)
+            response = requests.get(auth_endpoint, auth=auth, verify=verify_ssl_certificate)
             response.raise_for_status()
         except requests.exceptions.ConnectionError as c_err:
             print("Connection Error :", c_err)
@@ -714,7 +739,8 @@ class CDEApiConnectionManager:
         }
 
         connection = CDEApiConnection(
-            self.base_api_url, self.access_token, self.api_headers, self.session_params
+            self.base_api_url, self.access_token, self.api_headers, self.session_params, 
+            self.verify_ssl_certificate
         )
 
         return connection
