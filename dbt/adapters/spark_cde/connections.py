@@ -7,7 +7,7 @@ import dbt.adapters.spark_cde.cloudera_tracking as tracker
 import dbt.exceptions
 from dbt.adapters.base import Credentials
 from dbt.adapters.sql import SQLConnectionManager
-from dbt.contracts.connection import ConnectionState, AdapterResponse, Connection
+from dbt.contracts.connection import AdapterRequiredConfig, ConnectionState, AdapterResponse, Connection
 from dbt.events.functions import fire_event
 from dbt.events.types import ConnectionUsed, SQLQuery, SQLQueryStatus
 from dbt.events import AdapterLogger
@@ -303,6 +303,11 @@ class SparkConnectionManager(SQLConnectionManager):
     SPARK_SQL_ENDPOINT_HTTP_PATH = "/sql/1.0/endpoints/{endpoint}"
     SPARK_CONNECTION_URL = "{host}:{port}" + SPARK_CLUSTER_HTTP_PATH
 
+    def __init__(self, profile: AdapterRequiredConfig):
+        super().__init__(profile)
+        # generate profile related object for instrumentation.
+        tracker.generate_profile_info(self)
+
     @contextmanager
     def exception_handler(self, sql):
         try:
@@ -498,7 +503,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         "connection_state": connection.state,
                         "elapsed_time": "{:.2f}".format(
                             connection_end_time - connection_start_time
-                        ),
+                        )
                     }
 
                     if connection.state == ConnectionState.FAIL:
@@ -568,8 +573,11 @@ class SparkConnectionManager(SQLConnectionManager):
                 "connection_state": ConnectionState.CLOSED,
                 "elapsed_time": "{:.2f}".format(
                     connection_close_end_time - connection_close_start_time
-                ),
-                
+                )
+            }
+
+            tracker.track_usage(payload)
+
             return connection
         except Exception as err:
             logger.debug(f"Error closing connection {err}")
@@ -634,6 +642,7 @@ class SparkConnectionManager(SQLConnectionManager):
                 "elapsed_time": "{:.2f}".format(elapsed_time),
                 "status": query_status,
                 "profile_name": self.profile.profile_name
+            }
 
             tracker.track_usage(payload)
 
