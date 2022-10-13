@@ -6,7 +6,7 @@ import dbt.exceptions
 
 from dbt.adapters.base import Credentials
 from dbt.adapters.sql import SQLConnectionManager
-from dbt.contracts.connection import ConnectionState, AdapterResponse, Connection
+from dbt.contracts.connection import AdapterRequiredConfig, ConnectionState, AdapterResponse, Connection
 from dbt.events.functions import fire_event
 from dbt.events.types import ConnectionUsed, SQLQuery, SQLQueryStatus
 from dbt.events import AdapterLogger
@@ -506,7 +506,7 @@ class SparkConnectionManager(SQLConnectionManager):
                         "connection_state": connection.state,
                         "elapsed_time": "{:.2f}".format(
                             connection_end_time - connection_start_time
-                        ),
+                        )
                     }
 
                     if connection.state == ConnectionState.FAIL:
@@ -576,8 +576,11 @@ class SparkConnectionManager(SQLConnectionManager):
                 "connection_state": ConnectionState.CLOSED,
                 "elapsed_time": "{:.2f}".format(
                     connection_close_end_time - connection_close_start_time
-                ),
-                
+                )
+            }
+
+            tracker.track_usage(payload)
+
             return connection
         except Exception as err:
             logger.debug(f"Error closing connection {err}")
@@ -642,6 +645,7 @@ class SparkConnectionManager(SQLConnectionManager):
                 "elapsed_time": "{:.2f}".format(elapsed_time),
                 "status": query_status,
                 "profile_name": self.profile.profile_name
+            }
 
             tracker.track_usage(payload)
 
