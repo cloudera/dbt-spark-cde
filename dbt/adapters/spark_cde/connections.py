@@ -95,6 +95,7 @@ class SparkCredentials(Credentials):
     retry_all: bool = False
     usage_tracking: Optional[bool] = True
     cde_session_parameters: Dict[str, Any] = field(default_factory=dict)
+    verify_ssl_certificate: Optional[bool] = True
 
     @classmethod
     def __pre_deserialize__(cls, data):
@@ -484,7 +485,8 @@ class SparkConnectionManager(SQLConnectionManager):
                             creds.password,
                             creds.auth_endpoint,
                             creds.host,
-                            creds.cde_session_parameters
+                            creds.cde_session_parameters,
+                            creds.verify_ssl_certificate
                         )
                     )
                 else:
