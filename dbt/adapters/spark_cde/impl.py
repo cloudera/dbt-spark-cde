@@ -14,6 +14,7 @@ import dbt.exceptions
 from dbt.adapters.base import AdapterConfig
 from dbt.adapters.base.impl import catch_as_completed
 from dbt.adapters.sql import SQLAdapter
+import dbt.adapters.spark_cde.cloudera_tracking as tracker
 from dbt.adapters.spark_cde import SparkConnectionManager
 from dbt.adapters.spark_cde import SparkRelation
 from dbt.adapters.spark_cde import SparkColumn
@@ -415,22 +416,21 @@ class SparkAdapter(SQLAdapter):
             version_json = json.dumps(version_object)
 
             payload = {
-                "event_type": "dbt_spark_livy_warehouse",
+                "event_type": "dbt_spark_cde_warehouse",
                 "warehouse_version": version_json,
             }
             tracker.track_usage(payload)
         except Exception as ex:
-            logger.debug(
-                f"Warehouse version not available. Reason: {ex}"
+            logger.error(
+                f"Failed to fetch warehouse version. Exception: {ex}"
             )
             payload = {
-                "event_type": "dbt_spark_livy_warehouse",
+                "event_type": "dbt_spark_cde_warehouse",
                 "warehouse_version": "NA",
             }
             tracker.track_usage(payload)
 
         self.connections.get_thread_connection().handle.close()
-
 
 # spark does something interesting with joins when both tables have the same
 # static values for the join condition and complains that the join condition is
