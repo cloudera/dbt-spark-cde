@@ -1,7 +1,8 @@
 import re
+import json
 from concurrent.futures import Future
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union, OrderedDict
 from typing_extensions import TypeAlias
 
 import agate
@@ -13,6 +14,7 @@ import dbt.exceptions
 from dbt.adapters.base import AdapterConfig
 from dbt.adapters.base.impl import catch_as_completed
 from dbt.adapters.sql import SQLAdapter
+import dbt.adapters.spark_cde.cloudera_tracking as tracker
 from dbt.adapters.spark_cde import SparkConnectionManager
 from dbt.adapters.spark_cde import SparkRelation
 from dbt.adapters.spark_cde import SparkColumn
@@ -380,6 +382,38 @@ class SparkAdapter(SQLAdapter):
         finally:
             conn.transaction_open = False
 
+    def debug_query(self) -> None:
+        self.execute("select 1 as id")
+
+        # query warehouse version
+        try:
+            sql_query = "select version()"
+            _, table = self.execute(sql_query, True, True)
+            version_object = []
+            json_funcs = [c.jsonify for c in table.column_types]
+
+            for row in table.rows:
+                values = tuple(json_funcs[i](d) for i, d in enumerate(row))
+                version_object.append(OrderedDict(zip(row.keys(), values)))
+
+            version_json = json.dumps(version_object)
+
+            payload = {
+                "event_type": "dbt_spark_cde_warehouse",
+                "warehouse_version": version_json,
+            }
+            tracker.track_usage(payload)
+        except Exception as ex:
+            logger.error(
+                f"Failed to fetch warehouse version. Exception: {ex}"
+            )
+            payload = {
+                "event_type": "dbt_spark_cde_warehouse",
+                "warehouse_version": "NA",
+            }
+            tracker.track_usage(payload)
+
+        self.connections.get_thread_connection().handle.close()
 
 # spark does something interesting with joins when both tables have the same
 # static values for the join condition and complains that the join condition is
