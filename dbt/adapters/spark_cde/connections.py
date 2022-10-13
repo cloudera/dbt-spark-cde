@@ -481,16 +481,45 @@ class SparkConnectionManager(SQLConnectionManager):
 
                     handle = SessionConnectionWrapper(Connection())
                 elif creds.method == SparkConnectionMethod.CDE:
-                    handle = CDEApiSessionConnectionWrapper(
-                        CDEApiConnectionManager().connect(
-                            creds.user,
-                            creds.password,
-                            creds.auth_endpoint,
-                            creds.host,
-                            creds.cde_session_parameters,
-                            creds.verify_ssl_certificate
+                    connection_start_time = time.time()
+                    connection_ex = None
+                    try:
+                        handle = CDEApiSessionConnectionWrapper(
+                            CDEApiConnectionManager().connect(
+                                creds.user,
+                                creds.password,
+                                creds.auth_endpoint,
+                                creds.host,
+                                creds.cde_session_parameters
+                            )
                         )
-                    )
+                        connection_end_time = time.time()
+                        connection.state = ConnectionState.OPEN
+                    except Exception as ex:
+                        logger.debug("Connection error: {}".format(ex))
+                        connection_ex = ex
+                        connection_end_time = time.time()
+                        connection.state = ConnectionState.FAIL
+
+                    # track usage
+                    payload = {
+                        "event_type": "dbt_spark_cde_open",
+                        "auth": "cde",
+                        "connection_state": connection.state,
+                        "elapsed_time": "{:.2f}".format(
+                            connection_end_time - connection_start_time
+                        ),
+                    }
+
+                    if connection.state == ConnectionState.FAIL:
+                        payload["connection_exception"] = "{}".format(connection_ex)
+                        tracker.track_usage(payload)
+                        raise connection_ex
+                    else:
+                        tracker.track_usage(payload)
+
+                    if connection_ex:
+                        raise connection_ex
                 else:
                     raise dbt.exceptions.DbtProfileError(
                         f"invalid credential method: {creds.method}"
@@ -634,7 +663,6 @@ class SparkConnectionManager(SQLConnectionManager):
             )
 
             return connection, cursor
-
 
 def build_ssl_transport(host, port, username, auth, kerberos_service_name, password=None):
     transport = None
