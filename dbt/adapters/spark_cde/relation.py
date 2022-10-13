@@ -4,8 +4,7 @@ from dataclasses import dataclass
 
 from dbt.adapters.base.relation import BaseRelation, Policy
 from dbt.exceptions import RuntimeException
-import dbt.adapters.spark_livy.cloudera_tracking as tracker
-
+import dbt.adapters.spark_cde.cloudera_tracking as tracker
 
 @dataclass
 class SparkQuotePolicy(Policy):
@@ -36,7 +35,7 @@ class SparkRelation(BaseRelation):
         if self.type:
             tracker.track_usage(
                 {
-                    "event_type": "dbt_spark_livy_model_access",
+                    "event_type": "dbt_spark_cde_model_access",
                     "model_name": self.render(),
                     "model_type": self.type,
                     "incremental_strategy": "",
@@ -55,7 +54,7 @@ class SparkRelation(BaseRelation):
         if self.type:
             tracker.track_usage(
                 {
-                    "event_type": "dbt_spark_livy_new_incremental",
+                    "event_type": "dbt_spark_cde_new_incremental",
                     "model_name": self.render(),
                     "model_type": self.type,
                     "incremental_strategy": incremental_strategy,
