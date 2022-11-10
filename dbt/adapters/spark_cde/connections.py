@@ -172,8 +172,8 @@ class SparkCredentials(Credentials):
         return self.host
 
     def _connection_keys(self):
-        if self.method == SparkConnectionMethod.LIVY:
-            return "host", "auth", "schema"
+        if self.method == SparkConnectionMethod.CDE:
+            return "host", "auth", "schema", "auth_endpoint"
         else:
             return "host", "port", "cluster", "endpoint", "schema", "organization"
 
