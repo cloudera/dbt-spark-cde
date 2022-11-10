@@ -761,7 +761,9 @@ class CDEApiConnectionManager:
         except Exception as e:
           logger.info(f"Unable to set dbt-spark-cde parameters: {e}")
 
-        logger.debug(f"[spark-cde config] timeout = {DEFAULT_CDE_JOB_TIMEOUT}, poll_wait = {DEFAULT_POLL_WAIT}, log_wait = {DEFAULT_LOG_WAIT}")
+        logger.debug(
+          f"[spark-cde config] timeout = {DEFAULT_CDE_JOB_TIMEOUT} sec., poll_wait = {DEFAULT_POLL_WAIT} sec., log_wait = {DEFAULT_LOG_WAIT} sec."
+        )
 
         connection = CDEApiConnection(
             self.base_api_url, self.access_token, self.api_headers, self.session_params, 
