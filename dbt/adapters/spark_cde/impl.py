@@ -402,33 +402,13 @@ class SparkAdapter(SQLAdapter):
     def debug_query(self) -> None:
         self.execute("select 1 as id")
 
-        # query warehouse version
-        try:
-            sql_query = "select version()"
-            _, table = self.execute(sql_query, True, True)
-            version_object = []
-            json_funcs = [c.jsonify for c in table.column_types]
 
-            for row in table.rows:
-                values = tuple(json_funcs[i](d) for i, d in enumerate(row))
-                version_object.append(OrderedDict(zip(row.keys(), values)))
-
-            version_json = json.dumps(version_object)
-
-            payload = {
-                "event_type": "dbt_spark_cde_warehouse",
-                "warehouse_version": version_json,
-            }
-            tracker.track_usage(payload)
-        except Exception as ex:
-            logger.error(
-                f"Failed to fetch warehouse version. Exception: {ex}"
-            )
-            payload = {
-                "event_type": "dbt_spark_cde_warehouse",
-                "warehouse_version": "NA",
-            }
-            tracker.track_usage(payload)
+        #Fixing spark version reported as 3.x, which we support,and avoiding additional call to query for version, as it affects performance.
+        payload = {
+            "event_type": "dbt_spark_cde_warehouse",
+            "warehouse_version": "3.x",
+        }
+        tracker.track_usage(payload)
 
         self.connections.get_thread_connection().handle.close()
 
