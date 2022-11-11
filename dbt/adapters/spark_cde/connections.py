@@ -3,8 +3,6 @@ from contextlib import contextmanager
 import dbt.adapters.spark_cde.__version__ as ver
 import dbt.adapters.spark_cde.cloudera_tracking as tracker
 import dbt.exceptions
-import dbt.adapters.spark_livy.__version__ as ver
-import dbt.adapters.spark_livy.cloudera_tracking as tracker
 
 from dbt.adapters.base import Credentials
 from dbt.adapters.sql import SQLConnectionManager
@@ -174,8 +172,8 @@ class SparkCredentials(Credentials):
         return self.host
 
     def _connection_keys(self):
-        if self.method == SparkConnectionMethod.LIVY:
-            return "host", "auth", "schema"
+        if self.method == SparkConnectionMethod.CDE:
+            return "host", "auth", "schema", "auth_endpoint"
         else:
             return "host", "port", "cluster", "endpoint", "schema", "organization"
 
