@@ -699,6 +699,8 @@ class CDEApiConnectionManager:
         return self.get_base_auth_url() + "gateway/authtkn/knoxtoken/api/v1/token"
 
     def connect(self, user_name, password, base_auth_url, base_api_url, session_params, verify_ssl_certificate=False):
+        global DEFAULT_CDE_JOB_TIMEOUT, DEFAULT_POLL_WAIT, DEFAULT_LOG_WAIT
+
         self.base_auth_url = base_auth_url
         self.base_api_url = base_api_url
         self.user_name = user_name
@@ -737,6 +739,32 @@ class CDEApiConnectionManager:
             "Content-Type": "application/json;charset=UTF-8",
             "accept": "text/plain; charset=utf-8",
         }
+
+        # check for dbt-spark-cde specific params
+        dbt_cde_session_param_keys = ["dbt.cde.job_timeout", "dbt.cde.poll_wait", "dbt.cde.log_wait"]
+
+        try:
+          new_session_params = {}
+          for key, value in self.session_params.items():
+            if key in dbt_cde_session_param_keys:
+               if key == "dbt.cde.job_timeout":
+                  DEFAULT_CDE_JOB_TIMEOUT = int(value)
+               elif key == "dbt.cde.poll_wait":
+                  DEFAULT_POLL_WAIT = int(value)
+               elif key == "dbt.cde.log_wait":
+                  DEFAULT_LOG_WAIT = int(value)
+            else:
+               new_session_params[key] = value
+
+          # remove adapter specific params
+          self.session_params = new_session_params
+        except Exception as e:
+          logger.info(f"Unable to set dbt-spark-cde parameters: {e}")
+
+        logger.debug(
+          f"[spark-cde config] timeout = {DEFAULT_CDE_JOB_TIMEOUT} sec., poll_wait = {DEFAULT_POLL_WAIT} sec., log_wait = {DEFAULT_LOG_WAIT} sec."
+        )
+
 
         connection = CDEApiConnection(
             self.base_api_url, self.access_token, self.api_headers, self.session_params, 
