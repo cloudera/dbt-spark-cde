@@ -11,7 +11,7 @@ The `dbt-spark-cde` adapter allows you to use [dbt](https://www.getdbt.com/) [Cl
 
 Python >= 3.9
 
-dbt-core >= 1.1.0
+dbt-core ~= 1.2.0
 
 requests >= 2.28.1
 
