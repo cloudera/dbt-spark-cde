@@ -118,7 +118,7 @@ def cloudera_spark_cde():
         "method": "cde",
         "host": os.getenv("DBT_CLOUDERA_HOST_NAME"),
         "auth_endpoint": os.getenv("DBT_CLOUDERA_AUTH_ENDPOINT"),
-        "username": os.getenv("DBT_CLOUDERA_USERNAME"),
+        "user": os.getenv("DBT_CLOUDERA_USERNAME"),
         "password": os.getenv("DBT_CLOUDERA_PASSWORD")
     }
 
