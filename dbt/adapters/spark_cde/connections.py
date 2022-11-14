@@ -631,6 +631,11 @@ class SparkConnectionManager(SQLConnectionManager):
             cursor = connection.handle.cursor()
 
             try:
+                if ("node_id" in additional_info):
+                    cursor.set_model_name(additional_info["node_id"].replace(".", "_"))
+                elif ("profile_name" in additional_info):
+                    cursor.set_model_name(additional_info["profile_name"])
+
                 cursor.execute(sql, bindings)
                 query_status = str(self.get_response(cursor))
             except Exception as ex:

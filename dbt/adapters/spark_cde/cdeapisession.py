@@ -51,14 +51,20 @@ NUMBERS = DECIMALS + (int, float)
 
 
 class CDEApiCursor:
+
     def __init__(self) -> None:
         self._schema = None
         self._rows = None
         self._cde_connection = None
         self._cde_api_helper = None
+        self._model_name = "None"
 
     def __init__(self, cde_connection) -> None:
+        self._schema = None
+        self._rows = None
         self._cde_connection = cde_connection
+        self._cde_api_helper = None
+        self._model_name = "None"
         self._cde_api_helper = CDEApiHelper()
 
     def __enter__(self):
@@ -73,6 +79,9 @@ class CDEApiCursor:
         self._cde_connection.close()
         return True
 
+    def set_model_name(self, model_name):
+        self._model_name = model_name
+        
     @property
     def description(
         self,
@@ -97,14 +106,15 @@ class CDEApiCursor:
     def close(self) -> None:
         self._rows = None
 
-    # TODO: kill the running job?
+        # TODO: kill the running job?
 
     # randomize the job name generated based on current time as we can have multiple threads
     # running, and we want to have a unique job id.
     def generate_job_name(self):
         time_ms = round(time.time() * 1000)
+        model_name = str(self._model_name)
         job_name = (
-            "dbt-job-" + repr(time_ms) + "-" + str(random.randint(0, 1000)).zfill(8)
+            "dbt-job-" + model_name + '-' + repr(time_ms) + "-" + str(random.randint(0, 1000)).zfill(8)
         )
         return job_name
 
@@ -365,6 +375,7 @@ class CDEApiConnection:
         self.api_header = api_header
         self.session_params = session_params
         self.verify_ssl_certificate = verify_ssl_certificate
+        self._cursor = CDEApiCursor(self)
 
     # Handle all exceptions from post/get requests during API calls. If any request fails we fail fast and stop
     # proceeding to the next api call.
@@ -676,7 +687,7 @@ class CDEApiConnection:
         return res
 
     def cursor(self):
-        return CDEApiCursor(self)
+        return self._cursor
 
 
 class CDEApiConnectionManager:
@@ -784,6 +795,9 @@ class CDEApiSessionConnectionWrapper(object):
     def cursor(self):
         self._cursor = self.handle.cursor()
         return self
+
+    def set_model_name(self, model_name):
+        self._cursor.set_model_name(model_name)
 
     def cancel(self):
         logger.debug("NotImplemented: cancel")
