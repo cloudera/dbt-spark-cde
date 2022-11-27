@@ -333,14 +333,12 @@ class CDEApiHelper:
         pass
 
     def generate_sql_resource(self, job_name, sql):
-        time_ms = round(time.time() * 1000)
-        file_name = job_name + "-" + repr(time_ms) + ".sql"
+        file_name = job_name + ".sql"
         file_obj = io.StringIO(sql)
         return {"file_name": file_name, "file_obj": file_obj, "job_name": job_name}
 
     def get_python_wrapper_resource(self, sql_resource):
-        time_ms = round(time.time() * 1000)
-        file_name = sql_resource["job_name"] + "-" + repr(time_ms) + ".py"
+        file_name = sql_resource["job_name"] + ".py"
 
         py_file = (
             "import pyspark\nfrom pyspark.sql import SparkSession\nspark=SparkSession.builder.appName('"
