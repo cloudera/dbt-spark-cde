@@ -37,6 +37,8 @@
 
   {#-- Incremental run logic --#}
   {%- if existing_relation is none -%}
+    {% do adapter.drop_relation(target_relation.incorporate(type='table')) %}
+    {% do adapter.drop_relation(target_relation.incorporate(type='view')) %}
     {#-- Relation must be created --#}
     {%- call statement('main', language=language) -%}
       {{ create_table_as(False, target_relation, compiled_code, language) }}
@@ -46,6 +48,8 @@
     {% set is_delta = (file_format == 'delta' and existing_relation.is_delta) %}
     {% if not is_delta %} {#-- If Delta, we will `create or replace` below, so no need to drop --#}
       {% do adapter.drop_relation(existing_relation) %}
+      {% do adapter.drop_relation(target_relation.incorporate(type='table')) %}
+      {% do adapter.drop_relation(target_relation.incorporate(type='view')) %}
     {% endif %}
     {%- call statement('main', language=language) -%}
       {{ create_table_as(False, target_relation, compiled_code, language) }}
