@@ -548,6 +548,8 @@ class CDEApiConnection:
         if len(schema) == 0:
             return schema, rows
 
+        n_columns = len(schema)
+
         rows = []
         for data_line in res_lines[line_number + 2 :]:
             data_line = data_line.strip()
@@ -556,7 +558,7 @@ class CDEApiConnection:
             row = list(
                 map(
                     lambda x: x.strip(),
-                    list(filter(lambda x: x.strip() != "", data_line.split("|"))),
+                    list(filter(lambda x: x.strip() != "", data_line.split("|", n_columns))),
                 )
             )
             rows.append(row)
