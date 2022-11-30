@@ -234,7 +234,7 @@ class SparkAdapter(SQLAdapter):
     def parse_columns_from_information(self, relation: SparkRelation) -> List[SparkColumn]:
         owner_match = re.findall(self.INFORMATION_OWNER_REGEX, relation.information)
         owner = owner_match[0] if owner_match else None
-        matches = re.finditer(self.INFORMATION_COLUMNS_REGEX, relation.information)
+        matches = re.finditer(self.INFORMATION_COLUMNS_REGEX, relation.information.replace("\\n", "\n"))
         columns = []
         stats_match = re.findall(self.INFORMATION_STATISTICS_REGEX, relation.information)
         raw_table_stats = stats_match[0] if stats_match else None
