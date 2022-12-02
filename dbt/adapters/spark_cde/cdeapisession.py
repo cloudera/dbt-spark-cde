@@ -558,7 +558,7 @@ class CDEApiConnection:
             row = list(
                 map(
                     lambda x: x.strip(),
-                    list(filter(lambda x: x.strip() != "", data_line.split("|", n_columns))),
+                    data_line.split("|", n_columns),
                 )
             )
             rows.append(row)
