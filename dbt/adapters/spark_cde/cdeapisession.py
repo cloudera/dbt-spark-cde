@@ -539,9 +539,7 @@ class CDEApiConnection:
         schema = list(
             map(
                 lambda x: {"name": x.strip(), "type": "string", "nullable": False},
-                list(
-                    filter(lambda x: x.strip() != "", res_lines[line_number].split("|"))
-                ),
+                list(filter(lambda x: x.strip() != "", res_lines[line_number].split("|")))
             )
         )
 
@@ -558,9 +556,14 @@ class CDEApiConnection:
             row = list(
                 map(
                     lambda x: x.strip(),
-                    data_line.split("|", n_columns),
+                    list(filter(lambda x: x.strip() != "", data_line.split("|", n_columns)))
                 )
             )
+
+            # cleanup the last column
+            last_col = row[len(row)-1]
+            row[len(row)-1] = last_col[:-1].strip()
+
             rows.append(row)
 
         # extract datatypes based on data in first row (string, number or boolean)
